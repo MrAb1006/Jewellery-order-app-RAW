@@ -14,6 +14,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.*
@@ -46,8 +47,11 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.Order
 import com.example.data.OrderItem
+import com.example.data.OldOrderItem
 import com.example.data.getItems
+import com.example.data.getOldItems
 import com.example.data.serializeItems
+import com.example.data.serializeOldItems
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -753,6 +757,28 @@ fun OrderCard(
                 }
             }
 
+            val oldItems = order.getOldItems()
+            if (oldItems.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SwapHoriz,
+                        contentDescription = "Exchange Trade-In",
+                        tint = Color(0xFF6200EE),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Exchange: ${oldItems.size} old item(s) (Fine metal subtracted)",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = Color(0xFF6200EE)
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(10.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f))
             Spacer(modifier = Modifier.height(10.dp))
@@ -1027,6 +1053,13 @@ fun OrderDetailDialog(
                             onUpdateItemStatus = onUpdateItemStatus
                         )
 
+                        if (order.getOldItems().isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            TradedInJewelleryCard(order = order)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            MetalBalancingSheet(order = order)
+                        }
+
                         Spacer(modifier = Modifier.height(16.dp))
 
                         // Notes section
@@ -1183,6 +1216,7 @@ fun DetailMetricsGrid(
 @Composable
 fun BillingTicket(order: Order) {
     val items = order.getItems()
+    val oldItems = order.getOldItems()
     val balanceDue = order.totalAmount - order.advancePaid
 
     Card(
@@ -1195,7 +1229,8 @@ fun BillingTicket(order: Order) {
             items.forEachIndexed { index, item ->
                 val purityPercent = (item.purity.toDoubleOrNull() ?: 100.0) / 100.0
                 val metalValValue = item.approxWeight * item.agreedRate * purityPercent
-                val makingChargesAmount = metalValValue * (item.makingCharges / 100.0)
+                val isSilver = item.metalType.equals("Silver", ignoreCase = true)
+                val makingChargesAmount = if (isSilver) item.makingCharges else (metalValValue * (item.makingCharges / 100.0))
                 val itemTotal = metalValValue + makingChargesAmount + item.otherCharges
 
                 Text(
@@ -1224,8 +1259,9 @@ fun BillingTicket(order: Order) {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    val labelText = if (isSilver) "  · Making Charges (Flat addition)" else "  · Making Charges (${String.format(Locale.getDefault(), "%.1f", item.makingCharges)}%)"
                     Text(
-                        text = "  · Making Charges (${String.format(Locale.getDefault(), "%.1f", item.makingCharges)}%)",
+                        text = labelText,
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFF5C5243)
                     )
@@ -1275,6 +1311,45 @@ fun BillingTicket(order: Order) {
 
             HorizontalDivider(color = Color(0xFFEADBBE), modifier = Modifier.padding(vertical = 8.dp))
 
+            // Unreduced Grand Total & Exchange Credits
+            val unreducedGrandTotal = items.sumOf { item ->
+                val purityPercent = (item.purity.toDoubleOrNull() ?: 100.0) / 100.0
+                val metalValValue = item.approxWeight * item.agreedRate * purityPercent
+                val isSilver = item.metalType.equals("Silver", ignoreCase = true)
+                val makingChargesAmount = if (isSilver) item.makingCharges else (metalValValue * (item.makingCharges / 100.0))
+                metalValValue + makingChargesAmount + item.otherCharges
+            }
+
+            if (oldItems.isNotEmpty()) {
+                val totalExchangeCredit = oldItems.sumOf { calculateOldItemValuation(it, items) }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = "Specs Total Charges:", style = MaterialTheme.typography.bodySmall, color = Color(0xFF5C5243))
+                    Text(
+                        text = "₹${String.format(Locale.getDefault(), "%,.0f", unreducedGrandTotal)}",
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                        color = Color(0xFF2C251C)
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = "Traded-In Exchanges Credit:", style = MaterialTheme.typography.bodySmall, color = Color(0xFF137333))
+                    Text(
+                        text = "- ₹${String.format(Locale.getDefault(), "%,.0f", totalExchangeCredit)}",
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold, color = Color(0xFF137333))
+                    )
+                }
+                Spacer(modifier = Modifier.padding(vertical = 1.dp))
+                HorizontalDivider(color = Color(0xFFEADBBE).copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 4.dp))
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1313,7 +1388,6 @@ fun BillingTicket(order: Order) {
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Black),
                     color = if (balanceDue > 0) Color(0xFF2C251C) else Color(0xFF137333)
                 )
-                // Adjustment of font size of the amount in balance payable to fit the window of valuation (Req 5)
                 val dynamicPayableFontSize = if (balanceDue > 999999) 16.sp else 20.sp
                 Text(
                     text = "₹${String.format(Locale.getDefault(), "%,.0f", balanceDue)}",
@@ -1342,6 +1416,38 @@ data class EditableItem(
     val status: String = "Pending"
 )
 
+data class EditableOldItem(
+    val id: String = UUID.randomUUID().toString(),
+    val itemName: String = "",
+    val metalType: String = "Gold",
+    val approxWeight: String = "",
+    val purity: String = "91.6",
+    val agreedRate: String = ""
+)
+
+fun calculateOldItemValuation(oldItem: OldOrderItem, items: List<OrderItem>): Double {
+    val fineWeight = oldItem.approxWeight * (oldItem.purity / 100.0)
+    val rate = if (oldItem.agreedRate > 0.0) {
+        oldItem.agreedRate
+    } else {
+        items.firstOrNull { it.metalType.equals(oldItem.metalType, ignoreCase = true) }?.agreedRate ?: 0.0
+    }
+    return fineWeight * rate
+}
+
+fun calculateOldItemValuationEditable(oldItem: EditableOldItem, itemsList: List<EditableItem>): Double {
+    val wt = oldItem.approxWeight.toDoubleOrNull() ?: 0.0
+    val pur = oldItem.purity.toDoubleOrNull() ?: 0.0
+    val fineWeight = wt * (pur / 100.0)
+    val rateInput = oldItem.agreedRate.toDoubleOrNull()
+    val rate = if (rateInput != null && rateInput > 0.0) {
+        rateInput
+    } else {
+        itemsList.firstOrNull { it.metalType.equals(oldItem.metalType, ignoreCase = true) }?.agreedRate?.toDoubleOrNull() ?: 0.0
+    }
+    return fineWeight * rate
+}
+
 fun calculateItemTotal(item: EditableItem): Double {
     val wt = item.approxWeight.toDoubleOrNull() ?: 0.0
     val rate = item.agreedRate.toDoubleOrNull() ?: 0.0
@@ -1351,7 +1457,8 @@ fun calculateItemTotal(item: EditableItem): Double {
     val purityPercent = purityProfile / 100.0
 
     val rawCost = wt * rate * purityPercent
-    val makVal = rawCost * (mak / 100.0)
+    val isSilver = item.metalType.equals("Silver", ignoreCase = true)
+    val makVal = if (isSilver) mak else (rawCost * (mak / 100.0))
     return rawCost + makVal + other
 }
 
@@ -1364,7 +1471,8 @@ fun calculateModelItemTotal(item: OrderItem): Double {
     val purityPercent = purityProfile / 100.0
 
     val rawCost = wt * rate * purityPercent
-    val makVal = rawCost * (mak / 100.0)
+    val isSilver = item.metalType.equals("Silver", ignoreCase = true)
+    val makVal = if (isSilver) mak else (rawCost * (mak / 100.0))
     return rawCost + makVal + other
 }
 
@@ -1400,6 +1508,21 @@ fun AddEditOrderDialog(
         )
     }
 
+    var oldItemsList by remember {
+        mutableStateOf<List<EditableOldItem>>(
+            order?.getOldItems()?.map { item ->
+                EditableOldItem(
+                    id = item.id,
+                    itemName = item.itemName,
+                    metalType = item.metalType,
+                    approxWeight = if (item.approxWeight == 0.0) "" else item.approxWeight.toString(),
+                    purity = if (item.purity == 0.0) "" else item.purity.toString(),
+                    agreedRate = if (item.agreedRate == 0.0) "" else item.agreedRate.toString()
+                )
+            } ?: emptyList<EditableOldItem>()
+        )
+    }
+
     var advancePaid by remember { mutableStateOf(order?.advancePaid?.toString() ?: "0") }
     var notes by remember { mutableStateOf(order?.notes ?: "") }
 
@@ -1414,10 +1537,27 @@ fun AddEditOrderDialog(
     // Live Validation State
     var isNameError by remember { mutableStateOf(false) }
     var itemsErrorIndex by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var oldItemsErrorIndex by remember { mutableStateOf<Set<Int>>(emptySet()) }
+
+    fun updateItemSafe(index: Int, block: (EditableItem) -> EditableItem) {
+        val newList = itemsList.toMutableList()
+        if (index in newList.indices) {
+            newList[index] = block(newList[index])
+            itemsList = newList
+        }
+    }
+
+    fun updateOldItemSafe(optIndex: Int, block: (EditableOldItem) -> EditableOldItem) {
+        val newList = oldItemsList.toMutableList()
+        if (optIndex in newList.indices) {
+            newList[optIndex] = block(newList[optIndex])
+            oldItemsList = newList
+        }
+    }
 
     // Jewelry Categories dropdown options
     val jewelleryOptions = listOf("Ring", "Necklace", "Earrings", "Bracelet", "Bangle", "Pendant", "Chain", "Anklet", "Custom Design")
-    val metalOptions = listOf("Gold", "Silver", "Platinum", "Rose Gold")
+    val metalOptions = listOf("Gold", "Silver")
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -1571,9 +1711,7 @@ fun AddEditOrderDialog(
                                         OutlinedTextField(
                                             value = itemState.jewelleryType,
                                             onValueChange = { newVal ->
-                                                val newList = itemsList.toMutableList()
-                                                newList[index] = newList[index].copy(jewelleryType = newVal)
-                                                itemsList = newList
+                                                updateItemSafe(index) { it.copy(jewelleryType = newVal) }
                                             },
                                             label = { Text("Jewellery Category") },
                                             placeholder = { Text("e.g. Ring, Necklace") },
@@ -1615,7 +1753,6 @@ fun AddEditOrderDialog(
                                                     DropdownMenuItem(
                                                         text = { Text(option) },
                                                         onClick = {
-                                                            val newList = itemsList.toMutableList()
                                                             val defaultPurity = when (option) {
                                                                 "Gold" -> "91.6"
                                                                 "Silver" -> "92.5"
@@ -1623,11 +1760,12 @@ fun AddEditOrderDialog(
                                                                 "Rose Gold" -> "75.0"
                                                                 else -> "91.6"
                                                             }
-                                                            newList[index] = newList[index].copy(
-                                                                metalType = option,
-                                                                purity = defaultPurity
-                                                            )
-                                                            itemsList = newList
+                                                            updateItemSafe(index) {
+                                                                it.copy(
+                                                                    metalType = option,
+                                                                    purity = defaultPurity
+                                                                )
+                                                            }
                                                             expandedMetal = false
                                                         }
                                                     )
@@ -1644,9 +1782,7 @@ fun AddEditOrderDialog(
                                         OutlinedTextField(
                                             value = itemState.purity,
                                             onValueChange = { value ->
-                                                val newList = itemsList.toMutableList()
-                                                newList[index] = newList[index].copy(purity = value)
-                                                itemsList = newList
+                                                updateItemSafe(index) { it.copy(purity = value) }
                                             },
                                             label = { Text("Purity % / Karat") },
                                             placeholder = { Text("91.6 (22K)") },
@@ -1659,9 +1795,7 @@ fun AddEditOrderDialog(
                                         OutlinedTextField(
                                             value = itemState.approxWeight,
                                             onValueChange = { value ->
-                                                val newList = itemsList.toMutableList()
-                                                newList[index] = newList[index].copy(approxWeight = value)
-                                                itemsList = newList
+                                                updateItemSafe(index) { it.copy(approxWeight = value) }
                                             },
                                             label = { Text("Approx Weight (g) *") },
                                             placeholder = { Text("15.5") },
@@ -1681,9 +1815,7 @@ fun AddEditOrderDialog(
                                         OutlinedTextField(
                                             value = itemState.agreedRate,
                                             onValueChange = { value ->
-                                                val newList = itemsList.toMutableList()
-                                                newList[index] = newList[index].copy(agreedRate = value)
-                                                itemsList = newList
+                                                updateItemSafe(index) { it.copy(agreedRate = value) }
                                             },
                                             label = { Text("Agreed Rate / g (₹)") },
                                             placeholder = { Text("7100") },
@@ -1697,9 +1829,7 @@ fun AddEditOrderDialog(
                                         OutlinedTextField(
                                             value = itemState.makingCharges,
                                             onValueChange = { value ->
-                                                val newList = itemsList.toMutableList()
-                                                newList[index] = newList[index].copy(makingCharges = value)
-                                                itemsList = newList
+                                                updateItemSafe(index) { it.copy(makingCharges = value) }
                                             },
                                             label = { Text("Making Charges %") },
                                             placeholder = { Text("12") },
@@ -1719,9 +1849,7 @@ fun AddEditOrderDialog(
                                         OutlinedTextField(
                                             value = itemState.otherCharges,
                                             onValueChange = { value ->
-                                                val newList = itemsList.toMutableList()
-                                                newList[index] = newList[index].copy(otherCharges = value)
-                                                itemsList = newList
+                                                updateItemSafe(index) { it.copy(otherCharges = value) }
                                             },
                                             label = { Text("Stones/Other ₹") },
                                             placeholder = { Text("500") },
@@ -1765,9 +1893,7 @@ fun AddEditOrderDialog(
                                                     DropdownMenuItem(
                                                         text = { Text(statusOpt) },
                                                         onClick = {
-                                                            val newList = itemsList.toMutableList()
-                                                            newList[index] = newList[index].copy(status = statusOpt)
-                                                            itemsList = newList
+                                                            updateItemSafe(index) { it.copy(status = statusOpt) }
                                                             expandedStatus = false
                                                         }
                                                     )
@@ -1807,6 +1933,318 @@ fun AddEditOrderDialog(
                             Icon(Icons.Default.Add, contentDescription = "Add another item", modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Add Another Jewellery Item", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    // --- OLD JEWELLERY RECEIVED (EXCHANGE) SECTION ---
+                    item {
+                        DividerIndicator()
+                        Text(
+                            text = "OLD JEWELLERY INTERACTIVES (EXCHANGE)",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp),
+                            color = Color(0xFF6200EE),
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                    }
+
+                    if (oldItemsList.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+                                    .padding(16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "No old jewellery items added. Click below to add an item for exchange.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                    } else {
+                        oldItemsList.forEachIndexed { optIndex, oldItem ->
+                            item {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                                    ),
+                                    border = BorderStroke(
+                                        width = 0.5.dp,
+                                        color = if (oldItemsErrorIndex.contains(optIndex)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+                                    )
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "Old Item #${optIndex + 1}",
+                                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            IconButton(
+                                                onClick = {
+                                                    val newList = oldItemsList.toMutableList()
+                                                    newList.removeAt(optIndex)
+                                                    oldItemsList = newList
+                                                }
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = "Remove old item",
+                                                    tint = MaterialTheme.colorScheme.error,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        }
+
+                                        OutlinedTextField(
+                                            value = oldItem.itemName,
+                                            onValueChange = { newVal ->
+                                                updateOldItemSafe(optIndex) { it.copy(itemName = newVal) }
+                                            },
+                                            label = { Text("Item Name / Description *") },
+                                            placeholder = { Text("Old Gold Necklace") },
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFF6200EE)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            var expandedOldMetal by remember { mutableStateOf(false) }
+                                            Box(modifier = Modifier.weight(1f).clickable { expandedOldMetal = true }) {
+                                                OutlinedTextField(
+                                                    value = oldItem.metalType,
+                                                    onValueChange = {},
+                                                    readOnly = true,
+                                                    enabled = false,
+                                                    label = { Text("Metal Type") },
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    colors = OutlinedTextFieldDefaults.colors(
+                                                        disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                                                        disabledBorderColor = MaterialTheme.colorScheme.outline,
+                                                        disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    ),
+                                                    trailingIcon = { Icon(Icons.Default.ArrowDropDown, contentDescription = "Select metal") },
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                                DropdownMenu(
+                                                    expanded = expandedOldMetal,
+                                                    onDismissRequest = { expandedOldMetal = false }
+                                                ) {
+                                                    listOf("Gold", "Silver").forEach { opt ->
+                                                        DropdownMenuItem(
+                                                            text = { Text(opt) },
+                                                            onClick = {
+                                                                updateOldItemSafe(optIndex) { it.copy(metalType = opt) }
+                                                                expandedOldMetal = false
+                                                            }
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            OutlinedTextField(
+                                                value = oldItem.approxWeight,
+                                                onValueChange = { newVal ->
+                                                    updateOldItemSafe(optIndex) { it.copy(approxWeight = newVal) }
+                                                },
+                                                label = { Text("Weight (g) *") },
+                                                placeholder = { Text("10.5") },
+                                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                                shape = RoundedCornerShape(12.dp),
+                                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFF6200EE)),
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            OutlinedTextField(
+                                                value = oldItem.purity,
+                                                onValueChange = { newVal ->
+                                                    updateOldItemSafe(optIndex) { it.copy(purity = newVal) }
+                                                },
+                                                label = { Text("Purity (%) *") },
+                                                placeholder = { Text("91.6") },
+                                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                                shape = RoundedCornerShape(12.dp),
+                                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFF6200EE)),
+                                                modifier = Modifier.weight(1f)
+                                            )
+
+                                            val oldWt = oldItem.approxWeight.toDoubleOrNull() ?: 0.0
+                                            val oldPur = oldItem.purity.toDoubleOrNull() ?: 0.0
+                                            val fineValue = oldWt * (oldPur / 100.0)
+
+                                            OutlinedTextField(
+                                                value = "${String.format(Locale.getDefault(), "%.3f", fineValue)} g",
+                                                onValueChange = {},
+                                                readOnly = true,
+                                                enabled = false,
+                                                label = { Text("Fine Wt (wt*purity)") },
+                                                shape = RoundedCornerShape(12.dp),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                                                    disabledBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                                    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                                ),
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            OutlinedTextField(
+                                                value = oldItem.agreedRate,
+                                                onValueChange = { newVal ->
+                                                    updateOldItemSafe(optIndex) { it.copy(agreedRate = newVal) }
+                                                },
+                                                label = { Text("Exch. Rate (₹/g)") },
+                                                placeholder = {
+                                                    val fallback = itemsList.firstOrNull { it.metalType.equals(oldItem.metalType, ignoreCase = true) }?.agreedRate ?: ""
+                                                    if (fallback.isEmpty()) "e.g. 7100" else "Auto: $fallback"
+                                                },
+                                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                                shape = RoundedCornerShape(12.dp),
+                                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFF6200EE)),
+                                                modifier = Modifier.weight(1f)
+                                            )
+
+                                            val oldWt = oldItem.approxWeight.toDoubleOrNull() ?: 0.0
+                                            val oldPur = oldItem.purity.toDoubleOrNull() ?: 0.0
+                                            val fineValue = oldWt * (oldPur / 100.0)
+                                            val rateUsed = oldItem.agreedRate.toDoubleOrNull() ?: itemsList.firstOrNull { it.metalType.equals(oldItem.metalType, ignoreCase = true) }?.agreedRate?.toDoubleOrNull() ?: 0.0
+                                            val valuationVal = fineValue * rateUsed
+
+                                            OutlinedTextField(
+                                                value = "₹${String.format(Locale.getDefault(), "%,.1f", valuationVal)}",
+                                                onValueChange = {},
+                                                readOnly = true,
+                                                enabled = false,
+                                                label = { Text("Valuation (₹)") },
+                                                shape = RoundedCornerShape(12.dp),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    disabledTextColor = if (valuationVal > 0) Color(0xFF137333) else MaterialTheme.colorScheme.onSurface,
+                                                    disabledBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                                    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                                ),
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        Button(
+                            onClick = {
+                                oldItemsList = oldItemsList + EditableOldItem()
+                            },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF6200EE)),
+                            border = BorderStroke(1.dp, Color(0xFF6200EE).copy(alpha = 0.5f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Add old jewellery exchange", modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Add Old Jewellery For Exchange", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    // --- GOLD & SILVER LIVE FINE WEIGHT METAL SHEET ---
+                    item {
+                        val newGoldFine = itemsList.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
+                            val wt = it.approxWeight.toDoubleOrNull() ?: 0.0
+                            val pur = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
+                            wt * pur
+                        }
+                        val oldGoldFine = oldItemsList.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
+                            val wt = it.approxWeight.toDoubleOrNull() ?: 0.0
+                            val pur = (it.purity.toDoubleOrNull() ?: 0.0) / 100.0
+                            wt * pur
+                        }
+                        val netGoldFine = newGoldFine - oldGoldFine
+
+                        val newSilverFine = itemsList.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
+                            val wt = it.approxWeight.toDoubleOrNull() ?: 0.0
+                            val pur = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
+                            wt * pur
+                        }
+                        val oldSilverFine = oldItemsList.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
+                            val wt = it.approxWeight.toDoubleOrNull() ?: 0.0
+                            val pur = (it.purity.toDoubleOrNull() ?: 0.0) / 100.0
+                            wt * pur
+                        }
+                        val netSilverFine = newSilverFine - oldSilverFine
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = "LIVE FINE METAL BALANCING SHEET",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                                    color = Color(0xFFC5A059)
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                // Gold
+                                Text("Gold Metal Area", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = Color(0xFFC5A059))
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("New Specs Fine Gold:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("${String.format(Locale.getDefault(), "%.3f", newGoldFine)} g", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Old Exchange Fine Gold:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("- ${String.format(Locale.getDefault(), "%.3f", oldGoldFine)} g", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = Color(0xFF137333)))
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Net Required Gold Fine:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold))
+                                    Text("${String.format(Locale.getDefault(), "%.3f", netGoldFine)} g", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = if (netGoldFine >= 0) Color(0xFFC5A059) else Color(0xFF137333)))
+                                }
+
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 4.dp))
+
+                                // Silver
+                                Text("Silver Metal Area", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = Color(0xFF7F8C8D))
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("New Specs Fine Silver:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("${String.format(Locale.getDefault(), "%.3f", newSilverFine)} g", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Old Exchange Fine Silver:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("- ${String.format(Locale.getDefault(), "%.3f", oldSilverFine)} g", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = Color(0xFF137333)))
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Net Required Silver Fine:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold))
+                                    Text("${String.format(Locale.getDefault(), "%.3f", netSilverFine)} g", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = if (netSilverFine >= 0) Color(0xFF7F8C8D) else Color(0xFF137333)))
+                                }
+                            }
                         }
                     }
 
@@ -1896,11 +2334,14 @@ fun AddEditOrderDialog(
                         )
                     }
 
-                    // Active aggregate preview breakdown
+                    // Active aggregate preview breakdown with exchange subtraction
                     item {
                         val computedOverallTotal = itemsList.sumOf { calculateItemTotal(it) }
+                        val totalExchangeCredit = oldItemsList.sumOf { calculateOldItemValuationEditable(it, itemsList) }
+
+                        val finalPayableAmount = maxOf(0.0, computedOverallTotal - totalExchangeCredit)
                         val givenDeposit = advancePaid.toDoubleOrNull() ?: 0.0
-                        val netBalance = computedOverallTotal - givenDeposit
+                        val netBalance = finalPayableAmount - givenDeposit
 
                         Card(
                             modifier = Modifier
@@ -1919,8 +2360,24 @@ fun AddEditOrderDialog(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("Grand Total Charges:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("Grand Total Specs:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text("₹${String.format(Locale.getDefault(), "%,.2f", computedOverallTotal)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                                }
+                                if (totalExchangeCredit > 0) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Exchange Valuation Credit:", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF137333))
+                                        Text("- ₹${String.format(Locale.getDefault(), "%,.2f", totalExchangeCredit)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold, color = Color(0xFF137333)))
+                                    }
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Net Payable Amount:", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                                    Text("₹${String.format(Locale.getDefault(), "%,.2f", finalPayableAmount)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
                                 }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -1938,7 +2395,6 @@ fun AddEditOrderDialog(
                                     Text("Net Balance Due:", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
                                     Text(
                                         text = "₹${String.format(Locale.getDefault(), "%,.2f", netBalance)}",
-                                        // Requirement 5: adjust font size dynamically based on value size
                                         style = if (netBalance >= 100000.0) {
                                             MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold)
                                         } else {
@@ -1954,6 +2410,38 @@ fun AddEditOrderDialog(
 
                     item {
                         Spacer(modifier = Modifier.height(24.dp))
+                    }
+                }
+
+                // Pinned validation warning above the bottom action bar
+                if (isNameError || itemsErrorIndex.isNotEmpty() || oldItemsErrorIndex.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 8.dp)
+                            .background(Color(0xFFFDF2F2), RoundedCornerShape(10.dp))
+                            .border(1.dp, Color(0xFFF5C2C2), RoundedCornerShape(10.dp))
+                            .padding(12.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = "Pinned Validation Warning",
+                                tint = Color(0xFFC53030),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = when {
+                                    isNameError -> "Customer Name is required."
+                                    itemsErrorIndex.isNotEmpty() -> "Please specify valid weights (g) for all jewellery items."
+                                    oldItemsErrorIndex.isNotEmpty() -> "Please enter valid item description, weight & details for all exchange old items."
+                                    else -> "Please correct highlighted fields before submitting."
+                                },
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                                color = Color(0xFFC53030)
+                            )
+                        }
                     }
                 }
 
@@ -1982,7 +2470,25 @@ fun AddEditOrderDialog(
                             }.toSet()
                             itemsErrorIndex = invalidIndices
 
-                            if (!isNameError && invalidIndices.isEmpty()) {
+                            // Validate weights & description of old items
+                            val invalidOldIndices = oldItemsList.mapIndexedNotNull { index, item ->
+                                val wt = item.approxWeight.toDoubleOrNull()
+                                val name = item.itemName.trim()
+                                if (wt == null || wt <= 0.0 || name.isBlank()) index else null
+                            }.toSet()
+                            oldItemsErrorIndex = invalidOldIndices
+
+                            val toastMsg = when {
+                                isNameError -> "Customer Name is required."
+                                invalidIndices.isNotEmpty() -> "Please specify valid approx weights for all jewellery items."
+                                invalidOldIndices.isNotEmpty() -> "Please enter valid descriptions and weights for all exchange old items."
+                                else -> null
+                            }
+                            if (toastMsg != null) {
+                                android.widget.Toast.makeText(context, toastMsg, android.widget.Toast.LENGTH_LONG).show()
+                            }
+
+                            if (!isNameError && invalidIndices.isEmpty() && invalidOldIndices.isEmpty()) {
                                 val finalItems = itemsList.map { item ->
                                     OrderItem(
                                         id = item.id,
@@ -1998,9 +2504,23 @@ fun AddEditOrderDialog(
                                 }
                                 val primaryItem = finalItems.first()
 
-                                // Synthesise primary metrics based on all items
+                                val finalOldItems = oldItemsList.map { item ->
+                                    OldOrderItem(
+                                        id = item.id,
+                                        itemName = item.itemName,
+                                        metalType = item.metalType,
+                                        approxWeight = item.approxWeight.toDoubleOrNull() ?: 0.0,
+                                        purity = item.purity.toDoubleOrNull() ?: 0.0,
+                                        agreedRate = item.agreedRate.toDoubleOrNull() ?: 0.0
+                                    )
+                                }
+
+                                // Synthesise primary metrics based on all items and old items
                                 val aggregatedTotalSum = finalItems.sumOf { calculateModelItemTotal(it) }
                                 val aggregatedWeightSum = finalItems.sumOf { it.approxWeight }
+
+                                val totalExchangeCredit = finalOldItems.sumOf { calculateOldItemValuation(it, finalItems) }
+                                val finalPayableAmount = maxOf(0.0, aggregatedTotalSum - totalExchangeCredit)
                                 
                                 // Overall delivery status: if all items are Delivered -> Delivered; if all are Completed -> Completed; else In Progress / Pending
                                 val overallStatus = when {
@@ -2026,12 +2546,13 @@ fun AddEditOrderDialog(
                                     makingCharges = primaryItem.makingCharges,
                                     otherCharges = finalItems.sumOf { it.otherCharges },
                                     advancePaid = advancePaid.toDoubleOrNull() ?: 0.0,
-                                    totalAmount = aggregatedTotalSum,
+                                    totalAmount = finalPayableAmount,
                                     orderDate = order?.orderDate ?: System.currentTimeMillis(),
                                     expectedDeliveryDate = expectedDeliveryDate,
                                     notes = notes,
                                     status = overallStatus,
-                                    itemsJson = serializeItems(finalItems)
+                                    itemsJson = serializeItems(finalItems),
+                                    oldItemsJson = serializeOldItems(finalOldItems)
                                 )
                                 onConfirm(customerOrder)
                             }
@@ -2116,4 +2637,162 @@ fun deserializeOrders(jsonStr: String): List<Order> {
          e.printStackTrace()
     }
     return list
+}
+
+@Composable
+fun TradedInJewelleryCard(order: Order) {
+    val oldItems = order.getOldItems()
+    if (oldItems.isEmpty()) return
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF3FAF6)),
+        border = BorderStroke(0.5.dp, Color(0xFFBEDADB))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "TRADED-IN ITEMS SPECIFICATIONS",
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = Color(0xFF137333)
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            oldItems.forEachIndexed { index, item ->
+                val purityLabel = "${String.format(Locale.getDefault(), "%.1f", item.purity)}%"
+                val fineWeight = item.approxWeight * (item.purity / 100.0)
+
+                Text(
+                    text = "Old Item #${index + 1}: ${item.itemName}",
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                    color = Color(0xFF1C2C25)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "  · Metal & Purity: ${item.metalType} ($purityLabel)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF435C52)
+                    )
+                    Text(
+                        text = "${String.format(Locale.getDefault(), "%.2f", item.approxWeight)} g",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = Color(0xFF1C2C25)
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "  · Subtracted Fine Weight (wt*purity):",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF435C52)
+                    )
+                    Text(
+                        text = "${String.format(Locale.getDefault(), "%.3f", fineWeight)} g",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = Color(0xFF137333))
+                    )
+                }
+                if (index < oldItems.size - 1) {
+                    HorizontalDivider(color = Color(0xFFBEDADB).copy(alpha = 0.4f), modifier = Modifier.padding(vertical = 8.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MetalBalancingSheet(order: Order) {
+    val items = order.getItems()
+    val oldItems = order.getOldItems()
+
+    // Aggregates for Gold
+    val newGoldFine = items.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
+        val purPercent = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
+        it.approxWeight * purPercent
+    }
+    val oldGoldFine = oldItems.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
+        it.approxWeight * (it.purity / 100.0)
+    }
+    val netGoldFine = newGoldFine - oldGoldFine
+
+    // Aggregates for Silver
+    val newSilverFine = items.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
+        val purPercent = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
+        it.approxWeight * purPercent
+    }
+    val oldSilverFine = oldItems.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
+        it.approxWeight * (it.purity / 100.0)
+    }
+    val netSilverFine = newSilverFine - oldSilverFine
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                text = "FINE METAL RECONCILIATION SHEET",
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            // Gold balancing row
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "GOLD METAL BALANCING",
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                    color = Color(0xFFC5A059)
+                )
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("  · New Gold Fine Weight Total:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${String.format(Locale.getDefault(), "%.3f", newGoldFine)} g", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("  · Old Gold Traded-in Fine:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("- ${String.format(Locale.getDefault(), "%.3f", oldGoldFine)} g", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = Color(0xFF137333)))
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 2.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("  · Net Gold Fine Required:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        text = "${String.format(Locale.getDefault(), "%.3f", netGoldFine)} g",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = if (netGoldFine >= 0) Color(0xFFC5A059) else Color(0xFF137333))
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+
+            // Silver balancing row
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "SILVER METAL BALANCING",
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                    color = Color(0xFF7F8C8D)
+                )
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("  · New Silver Fine Weight Total:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${String.format(Locale.getDefault(), "%.3f", newSilverFine)} g", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("  · Old Silver Traded-in Fine:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("- ${String.format(Locale.getDefault(), "%.3f", oldSilverFine)} g", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = Color(0xFF137333)))
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 2.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("  · Net Silver Fine Required:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        text = "${String.format(Locale.getDefault(), "%.3f", netSilverFine)} g",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = if (netSilverFine >= 0) Color(0xFF7F8C8D) else Color(0xFF137333))
+                    )
+                }
+            }
+        }
+    }
 }

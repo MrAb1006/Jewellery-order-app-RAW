@@ -3,6 +3,8 @@ package com.example.ui
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.spring
@@ -10,8 +12,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -41,6 +45,11 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.Order
+import com.example.data.OrderItem
+import com.example.data.getItems
+import com.example.data.serializeItems
+import org.json.JSONArray
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -60,6 +69,57 @@ fun DashboardScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var selectedOrderForDetail by remember { mutableStateOf<Order?>(null) }
     var selectedOrderForEdit by remember { mutableStateOf<Order?>(null) }
+
+    // Launcher for creating a backup file (export)
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        uri?.let {
+            try {
+                val json = serializeOrders(orders)
+                val os = context.contentResolver.openOutputStream(it)
+                if (os != null) {
+                    os.write(json.toByteArray())
+                    os.flush()
+                    os.close()
+                    Toast.makeText(context, "Backup exported successfully to file system!", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(context, "Export failed: cannot write stream", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Export failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    // Launcher for opening a backup file to restore (import)
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            try {
+                val isStream = context.contentResolver.openInputStream(it)
+                if (isStream != null) {
+                    val bytes = isStream.readBytes()
+                    isStream.close()
+                    val jsonStr = String(bytes)
+                    val restoredOrders = deserializeOrders(jsonStr)
+                    if (restoredOrders.isNotEmpty()) {
+                        restoredOrders.forEach { order ->
+                            viewModel.addOrder(order.copy(id = 0)) // Insert as new copy
+                        }
+                        Toast.makeText(context, "Successfully restored ${restoredOrders.size} orders!", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(context, "Restore failed: File is empty or in an invalid format.", Toast.LENGTH_LONG).show()
+                    }
+                } else {
+                    Toast.makeText(context, "Restore failed: cannot read stream", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Restore failed: Invalid back-up format. Error: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     // Luxury Golden Theme Brushes
     val goldGradient = Brush.horizontalGradient(
@@ -97,7 +157,7 @@ fun DashboardScreen(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "AURELIA JEWELLERS · SECURE ORDER ENGINE",
+                        text = "SUHAS JEWELLERS · SECURE ORDER ENGINE",
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.5.sp,
@@ -151,40 +211,45 @@ fun DashboardScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column {
-                        Text(
-                            text = "AURELIA",
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 4.sp,
-                                color = MaterialTheme.colorScheme.primary
+                    Text(
+                        text = "Suhas Jewellers",
+                        style = MaterialTheme.typography.headlineLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    )
+
+                    // Backup and Restore 3-dot dropdown menu
+                    var showBackupMenu by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { showBackupMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Database backup and restore options",
+                                tint = MaterialTheme.colorScheme.onBackground
                             )
-                        )
-                        Text(
-                            text = "Jewellery Orders",
-                            style = MaterialTheme.typography.headlineLarge.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onBackground
+                        }
+                        DropdownMenu(
+                            expanded = showBackupMenu,
+                            onDismissRequest = { showBackupMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Backup Database") },
+                                leadingIcon = { Icon(Icons.Default.Upload, contentDescription = null, tint = Color(0xFFC5A059)) },
+                                onClick = {
+                                    showBackupMenu = false
+                                    exportLauncher.launch("suhas_jewellers_backup.json")
+                                }
                             )
-                        )
-                    }
-                    // Luxury Badge Icon
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(CircleShape)
-                            .background(Brush.radialGradient(listOf(Color(0xFF2E2615), Color(0xFF131210))))
-                            .clickable {
-                                Toast.makeText(context, "Aurelia Gold Vault Active", Toast.LENGTH_SHORT).show()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MilitaryTech,
-                            contentDescription = "Royal Seals",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp)
-                        )
+                            DropdownMenuItem(
+                                text = { Text("Restore Database") },
+                                leadingIcon = { Icon(Icons.Default.Download, contentDescription = null, tint = Color(0xFFC5A059)) },
+                                onClick = {
+                                    showBackupMenu = false
+                                    importLauncher.launch(arrayOf("application/json", "application/octet-stream", "*/*"))
+                                }
+                            )
+                        }
                     }
                 }
 
@@ -195,63 +260,61 @@ fun DashboardScreen(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Search Bar
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { viewModel.setSearchQuery(it) },
-                    placeholder = { Text("Search customer name, phone, or items...") },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search icon",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { viewModel.setSearchQuery("") }) {
-                                Icon(
-                                    imageVector = Icons.Default.Clear,
-                                    contentDescription = "Clear search",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    },
-                    shape = RoundedCornerShape(14.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFFC5A059),
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
-                        focusedContainerColor = MaterialTheme.colorScheme.surface
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("search_input"),
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Horizontal Flow Status Chips and Sorter Row
+                // Search & Sort side-by-side inside a cohesive single-line Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Sorting Dropdown Trigger Card
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { viewModel.setSearchQuery(it) },
+                        placeholder = { Text("Search name, number, item") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search icon",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { viewModel.setSearchQuery("") }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Clear,
+                                        contentDescription = "Clear search",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFFC5A059),
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                            focusedContainerColor = MaterialTheme.colorScheme.surface
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("search_input"),
+                        singleLine = true
+                    )
+
+                    // Sorting Trigger dropdown
                     var showSortMenu by remember { mutableStateOf(false) }
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                         modifier = Modifier
-                            .clickable { showSortMenu = true }
-                            .padding(vertical = 4.dp),
+                            .clickable { showSortMenu = true },
                         border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Sort,
@@ -261,13 +324,16 @@ fun DashboardScreen(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Sort: $sortBy",
-                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = sortBy,
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Icon(
                                 imageVector = Icons.Default.ArrowDropDown,
-                                contentDescription = "Sort dropdown"
+                                contentDescription = "Sort dropdown",
+                                modifier = Modifier.size(16.dp)
                             )
                         }
 
@@ -293,19 +359,29 @@ fun DashboardScreen(
                             }
                         }
                     }
+                }
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                    // Quick Filter Count tag
+                // Status segment label with items count
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Status Filters",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     Text(
                         text = "Found ${orders.size} item(s)",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = Color(0xFFC5A059),
-                        modifier = Modifier.padding(end = 4.dp)
+                        color = Color(0xFFC5A059)
                     )
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
                 // Scrollable Status Filter Chips
                 StatusFilterTabs(
@@ -378,10 +454,28 @@ fun DashboardScreen(
         OrderDetailDialog(
             order = order,
             onDismiss = { selectedOrderForDetail = null },
-            onUpdateStatus = { status ->
-                viewModel.updateOrderStatus(order.id, status)
-                // Refresh local dialog state instantly by finding updated order from database logic
-                selectedOrderForDetail = order.copy(status = status)
+            onUpdateItemStatus = { itemIndex, newStatus ->
+                val currentItems = order.getItems().toMutableList()
+                if (itemIndex in currentItems.indices) {
+                    currentItems[itemIndex] = currentItems[itemIndex].copy(status = newStatus)
+                }
+
+                // Compute overall status based on item statuses
+                val overallStatus = when {
+                    currentItems.all { it.status == "Delivered" } -> "Delivered"
+                    currentItems.all { it.status == "Completed" || it.status == "Delivered" } -> "Completed"
+                    currentItems.any { it.status == "In Progress" || it.status == "Completed" } -> "In Progress"
+                    else -> "Pending"
+                }
+
+                val updatedOrder = order.copy(
+                    status = overallStatus,
+                    itemsJson = serializeItems(currentItems)
+                )
+
+                viewModel.updateOrder(updatedOrder)
+                // Refresh local dialog state instantly
+                selectedOrderForDetail = updatedOrder
             },
             onEdit = {
                 selectedOrderForEdit = order
@@ -471,7 +565,7 @@ fun MetricsPanel(metrics: OrderMetrics) {
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "$${String.format(Locale.getDefault(), "%,.0f", metrics.totalAdvanceCollected)}",
+                    text = "₹${String.format(Locale.getDefault(), "%,.0f", metrics.totalAdvanceCollected)}",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -492,7 +586,7 @@ fun MetricsPanel(metrics: OrderMetrics) {
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "$${String.format(Locale.getDefault(), "%,.0f", metrics.pendingCollection)}",
+                    text = "₹${String.format(Locale.getDefault(), "%,.0f", metrics.pendingCollection)}",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -604,9 +698,9 @@ fun OrderCard(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Column {
                     Text(
                         text = order.customerName,
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
@@ -614,56 +708,48 @@ fun OrderCard(
                         overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    Text(
-                        text = order.jewelleryType,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    if (order.customerPhone.isNotBlank()) {
+                        Text(
+                            text = order.customerPhone,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
-
-                StatusBadge(status = order.status)
             }
 
             Spacer(modifier = Modifier.height(10.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // Spec row
-            Row(
+            // Listed Jewellery Items with separate status badges
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Metal properties
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.FilterVintage,
-                        contentDescription = "Metal info",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "${order.metalType} · ${order.purity}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                // Weight
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Scale,
-                        contentDescription = "Weight info",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "${String.format(Locale.getDefault(), "%.2f", order.approxWeight)} g",
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                order.getItems().forEach { item ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = item.jewelleryType,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            val purityDisplay = if (item.purity.toDoubleOrNull() != null) "${item.purity}%" else item.purity
+                            Text(
+                                text = "${item.metalType} · $purityDisplay · ${String.format(Locale.getDefault(), "%.2f", item.approxWeight)} g",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        StatusBadge(status = item.status)
+                    }
                 }
             }
 
@@ -678,7 +764,7 @@ fun OrderCard(
             ) {
                 Column {
                     Text(
-                        text = "Balance: $${String.format(Locale.getDefault(), "%,.1f", balance)}",
+                        text = "Balance: ₹${String.format(Locale.getDefault(), "%,.0f", balance)}",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.ExtraBold,
                             fontFamily = FontFamily.Monospace
@@ -686,7 +772,7 @@ fun OrderCard(
                         color = if (balance > 0 && order.status != "Delivered") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Total $${String.format(Locale.getDefault(), "%,.1f", order.totalAmount)}",
+                        text = "Total ₹${String.format(Locale.getDefault(), "%,.0f", order.totalAmount)}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -755,7 +841,7 @@ fun StatusBadge(status: String) {
 fun OrderDetailDialog(
     order: Order,
     onDismiss: () -> Unit,
-    onUpdateStatus: (String) -> Unit,
+    onUpdateItemStatus: (Int, String) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -925,48 +1011,6 @@ fun OrderDetailDialog(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // Status Adjustment Bar
-                        Text(
-                            text = "ORDER STATUS TASKFLOW",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 1.2.sp
-                            ),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        val statusesList = listOf("Pending", "In Progress", "Completed", "Delivered")
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            statusesList.forEach { stateItem ->
-                                val active = order.status == stateItem
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(
-                                            if (active) Color(0xFFC5A059) else MaterialTheme.colorScheme.surfaceVariant.copy(
-                                                alpha = 0.4f
-                                            )
-                                        )
-                                        .clickable { onUpdateStatus(stateItem) }
-                                        .padding(vertical = 8.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = stateItem,
-                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                        color = if (active) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
                         // Jewelry Metal detail card
                         Text(
                             text = "JEWELLERY SPECIFICATIONS",
@@ -978,7 +1022,10 @@ fun OrderDetailDialog(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        DetailMetricsGrid(order = order)
+                        DetailMetricsGrid(
+                            order = order,
+                            onUpdateItemStatus = onUpdateItemStatus
+                        )
 
                         Spacer(modifier = Modifier.height(16.dp))
 
@@ -1030,53 +1077,112 @@ fun OrderDetailDialog(
     }
 }
 
-// Subcomponents for Detail Dialog Grid
 @Composable
-fun DetailMetricsGrid(order: Order) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            val gridItems = listOf<Triple<String, String, ImageVector>>(
-                Triple("Jewellery Type", order.jewelleryType, Icons.Default.Diamond),
-                Triple("Metal Type", order.metalType, Icons.Default.FilterVintage),
-                Triple("Purity Profile", order.purity, Icons.Default.Verified),
-                Triple("Exact Weight", "${String.format(Locale.getDefault(), "%.3f", order.approxWeight)} grams", Icons.Default.Scale),
-                Triple("Order Book Date", SimpleDateFormat("MMMM d, yyyy", Locale.getDefault()).format(Date(order.orderDate)), Icons.Default.Note),
-                Triple("Due Delivery Date", SimpleDateFormat("MMMM d, yyyy", Locale.getDefault()).format(Date(order.expectedDeliveryDate)), Icons.Default.Event)
-            )
-
-            gridItems.forEachIndexed { i, entry ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = entry.third, contentDescription = entry.first, tint = Color(0xFFC5A059), modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(entry.first, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium), color = MaterialTheme.colorScheme.onSurfaceVariant)
+fun DetailMetricsGrid(
+    order: Order,
+    onUpdateItemStatus: (Int, String) -> Unit
+) {
+    val items = order.getItems()
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        items.forEachIndexed { index, item ->
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(imageVector = Icons.Default.Diamond, contentDescription = "Jewellery icon", tint = Color(0xFFC5A059), modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Item #${index + 1}: ${item.jewelleryType}",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        StatusBadge(status = item.status)
                     }
-                    Text(entry.second, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
-                }
 
-                if (i < gridItems.lastIndex) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f), modifier = Modifier.padding(vertical = 4.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f), modifier = Modifier.padding(vertical = 10.dp))
+
+                    val formattedPurity = if (item.purity.toDoubleOrNull() != null) "${item.purity}%" else item.purity
+
+                    val gridItems = listOf(
+                        Pair("Metal Type", item.metalType),
+                        Pair("Purity Profile", formattedPurity),
+                        Pair("Weight (g)", "${String.format(Locale.getDefault(), "%.2f", item.approxWeight)} g"),
+                        Pair("Agreed Rate", "₹${String.format(Locale.getDefault(), "%,.0f", item.agreedRate)}/g"),
+                        Pair("Making Charge", "${String.format(Locale.getDefault(), "%.1f", item.makingCharges)}%"),
+                        Pair("Extra / Stones", "₹${String.format(Locale.getDefault(), "%,.0f", item.otherCharges)}")
+                    )
+
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        gridItems.chunked(2).forEach { rowPairs ->
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                rowPairs.forEach { pair ->
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(text = pair.first, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(text = pair.second, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = "ITEM STATUS TASKFLOW",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.2.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    val statusesList = listOf("Pending", "In Progress", "Completed", "Delivered")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        statusesList.forEach { stateItem ->
+                            val active = item.status == stateItem
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (active) Color(0xFFC5A059) else MaterialTheme.colorScheme.surfaceVariant.copy(
+                                            alpha = 0.4f
+                                        )
+                                    )
+                                    .clickable { onUpdateItemStatus(index, stateItem) }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = stateItem,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = if (active) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-// Ledger ticket style layout for pricing
 @Composable
 fun BillingTicket(order: Order) {
-    val metalValValue = order.approxWeight * order.agreedRate
+    val items = order.getItems()
     val balanceDue = order.totalAmount - order.advancePaid
 
     Card(
@@ -1086,59 +1192,97 @@ fun BillingTicket(order: Order) {
         border = BorderStroke(0.5.dp, Color(0xFFEADBBE))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
+            items.forEachIndexed { index, item ->
+                val purityPercent = (item.purity.toDoubleOrNull() ?: 100.0) / 100.0
+                val metalValValue = item.approxWeight * item.agreedRate * purityPercent
+                val makingChargesAmount = metalValValue * (item.makingCharges / 100.0)
+                val itemTotal = metalValValue + makingChargesAmount + item.otherCharges
+
                 Text(
-                    text = "Precious Metal value (${String.format(Locale.getDefault(), "%.2f", order.approxWeight)}g @ $${order.agreedRate}/g)",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF5C5243)
-                )
-                Text(
-                    text = "$${String.format(Locale.getDefault(), "%,.2f", metalValValue)}",
+                    text = "Item #${index + 1}: ${item.jewelleryType}",
                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
                     color = Color(0xFF2C251C)
                 )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    val purityLabel = if (item.purity.toDoubleOrNull() != null) "${item.purity}%" else item.purity
+                    Text(
+                        text = "  · Metal Value (${String.format(Locale.getDefault(), "%.2f", item.approxWeight)}g @ ₹${String.format(Locale.getDefault(), "%,.0f", item.agreedRate)}, $purityLabel)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF5C5243)
+                    )
+                    Text(
+                        text = "₹${String.format(Locale.getDefault(), "%,.0f", metalValValue)}",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = Color(0xFF2C251C)
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "  · Making Charges (${String.format(Locale.getDefault(), "%.1f", item.makingCharges)}%)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF5C5243)
+                    )
+                    Text(
+                        text = "₹${String.format(Locale.getDefault(), "%,.0f", makingChargesAmount)}",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = Color(0xFF2C251C)
+                    )
+                }
+                if (item.otherCharges > 0) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "  · Stones, Diamonds & others",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF5C5243)
+                        )
+                        Text(
+                            text = "₹${String.format(Locale.getDefault(), "%,.0f", item.otherCharges)}",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = Color(0xFF2C251C)
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "  Item #${index + 1} Subtotal",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = Color(0xFF5C5243)
+                    )
+                    Text(
+                        text = "₹${String.format(Locale.getDefault(), "%,.0f", itemTotal)}",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = Color(0xFF2C251C)
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                if (index < items.lastIndex) {
+                    HorizontalDivider(color = Color(0xFFEADBBE).copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 4.dp))
+                }
             }
-            Spacer(modifier = Modifier.height(6.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(text = "Artisan / Making charges", style = MaterialTheme.typography.bodySmall, color = Color(0xFF5C5243))
-                Text(
-                    text = "$${String.format(Locale.getDefault(), "%,.2f", order.makingCharges)}",
-                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                    color = Color(0xFF2C251C)
-                )
-            }
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(text = "Stones, Diamonds & others", style = MaterialTheme.typography.bodySmall, color = Color(0xFF5C5243))
-                Text(
-                    text = "$${String.format(Locale.getDefault(), "%,.2f", order.otherCharges)}",
-                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                    color = Color(0xFF2C251C)
-                )
-            }
-
-            Spacer(modifier = Modifier.padding(vertical = 4.dp))
-            HorizontalDivider(color = Color(0xFFEADBBE), modifier = Modifier.padding(vertical = 4.dp))
+            HorizontalDivider(color = Color(0xFFEADBBE), modifier = Modifier.padding(vertical = 8.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = "TOTAL VALUE ESTIMATE", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Black), color = Color(0xFF2C251C))
+                Text(text = "TOTAL ESTIMATED CHARGES", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Black), color = Color(0xFF2C251C))
                 Text(
-                    text = "$${String.format(Locale.getDefault(), "%,.2f", order.totalAmount)}",
+                    text = "₹${String.format(Locale.getDefault(), "%,.0f", order.totalAmount)}",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace),
                     color = Color(0xFF2C251C)
                 )
@@ -1151,7 +1295,7 @@ fun BillingTicket(order: Order) {
             ) {
                 Text(text = "Advance Deposit Paid", style = MaterialTheme.typography.bodySmall, color = Color(0xFF856404))
                 Text(
-                    text = "- $${String.format(Locale.getDefault(), "%,.2f", order.advancePaid)}",
+                    text = "- ₹${String.format(Locale.getDefault(), "%,.0f", order.advancePaid)}",
                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Black, color = Color(0xFF856404))
                 )
             }
@@ -1169,9 +1313,12 @@ fun BillingTicket(order: Order) {
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Black),
                     color = if (balanceDue > 0) Color(0xFF2C251C) else Color(0xFF137333)
                 )
+                // Adjustment of font size of the amount in balance payable to fit the window of valuation (Req 5)
+                val dynamicPayableFontSize = if (balanceDue > 999999) 16.sp else 20.sp
                 Text(
-                    text = "$${String.format(Locale.getDefault(), "%,.2f", balanceDue)}",
+                    text = "₹${String.format(Locale.getDefault(), "%,.0f", balanceDue)}",
                     style = MaterialTheme.typography.titleLarge.copy(
+                        fontSize = dynamicPayableFontSize,
                         fontWeight = FontWeight.Black,
                         fontFamily = FontFamily.Monospace,
                         color = if (balanceDue > 0) Color(0xFFC5A059) else Color(0xFF137333)
@@ -1180,6 +1327,45 @@ fun BillingTicket(order: Order) {
             }
         }
     }
+}
+
+// Editable item representation for live edits in text fields
+data class EditableItem(
+    val id: String = UUID.randomUUID().toString(),
+    val jewelleryType: String = "Ring",
+    val metalType: String = "Gold",
+    val purity: String = "91.6",
+    val approxWeight: String = "",
+    val agreedRate: String = "",
+    val makingCharges: String = "0",
+    val otherCharges: String = "0",
+    val status: String = "Pending"
+)
+
+fun calculateItemTotal(item: EditableItem): Double {
+    val wt = item.approxWeight.toDoubleOrNull() ?: 0.0
+    val rate = item.agreedRate.toDoubleOrNull() ?: 0.0
+    val mak = item.makingCharges.toDoubleOrNull() ?: 0.0
+    val other = item.otherCharges.toDoubleOrNull() ?: 0.0
+    val purityProfile = item.purity.toDoubleOrNull() ?: 100.0
+    val purityPercent = purityProfile / 100.0
+
+    val rawCost = wt * rate * purityPercent
+    val makVal = rawCost * (mak / 100.0)
+    return rawCost + makVal + other
+}
+
+fun calculateModelItemTotal(item: OrderItem): Double {
+    val wt = item.approxWeight
+    val rate = item.agreedRate
+    val mak = item.makingCharges
+    val other = item.otherCharges
+    val purityProfile = item.purity.toDoubleOrNull() ?: 100.0
+    val purityPercent = purityProfile / 100.0
+
+    val rawCost = wt * rate * purityPercent
+    val makVal = rawCost * (mak / 100.0)
+    return rawCost + makVal + other
 }
 
 // Pop up form Dialog to ADD or EDIT details. Highly validated.
@@ -1194,16 +1380,28 @@ fun AddEditOrderDialog(
 
     var customerName by remember { mutableStateOf(order?.customerName ?: "") }
     var customerPhone by remember { mutableStateOf(order?.customerPhone ?: "") }
-    var jewelleryType by remember { mutableStateOf(order?.jewelleryType ?: "Ring") }
-    var metalType by remember { mutableStateOf(order?.metalType ?: "Gold") }
-    var purity by remember { mutableStateOf(order?.purity ?: "22K (916)") }
-    var approxWeight by remember { mutableStateOf(order?.approxWeight?.toString() ?: "") }
-    var agreedRate by remember { mutableStateOf(order?.agreedRate?.toString() ?: "") }
-    var makingCharges by remember { mutableStateOf(order?.makingCharges?.toString() ?: "0") }
-    var otherCharges by remember { mutableStateOf(order?.otherCharges?.toString() ?: "0") }
+    
+    // Track the list of editable jewellery items!
+    var itemsList by remember {
+        mutableStateOf(
+            order?.getItems()?.map { item ->
+                EditableItem(
+                    id = item.id,
+                    jewelleryType = item.jewelleryType,
+                    metalType = item.metalType,
+                    purity = item.purity,
+                    approxWeight = if (item.approxWeight == 0.0) "" else item.approxWeight.toString(),
+                    agreedRate = if (item.agreedRate == 0.0) "" else item.agreedRate.toString(),
+                    makingCharges = item.makingCharges.toString(),
+                    otherCharges = item.otherCharges.toString(),
+                    status = item.status
+                )
+            } ?: listOf(EditableItem())
+        )
+    }
+
     var advancePaid by remember { mutableStateOf(order?.advancePaid?.toString() ?: "0") }
     var notes by remember { mutableStateOf(order?.notes ?: "") }
-    var status by remember { mutableStateOf(order?.status ?: "Pending") }
 
     val defaultCal = Calendar.getInstance()
     if (order != null) {
@@ -1215,25 +1413,11 @@ fun AddEditOrderDialog(
 
     // Live Validation State
     var isNameError by remember { mutableStateOf(false) }
-    var isWeightError by remember { mutableStateOf(false) }
+    var itemsErrorIndex by remember { mutableStateOf<Set<Int>>(emptySet()) }
 
     // Jewelry Categories dropdown options
     val jewelleryOptions = listOf("Ring", "Necklace", "Earrings", "Bracelet", "Bangle", "Pendant", "Chain", "Anklet", "Custom Design")
     val metalOptions = listOf("Gold", "Silver", "Platinum", "Rose Gold")
-    val purityOptionsMap = mapOf(
-        "Gold" to listOf("22K (916)", "18K (750)", "14K (585)", "24K (Pure)"),
-        "Silver" to listOf("92.5% Sterling", "99.9% Pure"),
-        "Platinum" to listOf("Pt950", "Pt900"),
-        "Rose Gold" to listOf("18K (750)", "14K (585)")
-    )
-    val activePurityOptions = purityOptionsMap[metalType] ?: listOf("22K (916)", "18K (750)")
-
-    // Dynamic state synchronizer if purity options change
-    LaunchedEffect(metalType) {
-        if (!activePurityOptions.contains(purity)) {
-            purity = activePurityOptions.firstOrNull() ?: ""
-        }
-    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -1303,10 +1487,10 @@ fun AddEditOrderDialog(
                             value = customerPhone,
                             onValueChange = { customerPhone = it },
                             label = { Text("Contact Number") },
-                            placeholder = { Text("+1 (555) 123-4567") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            placeholder = { Text("e.g. +91 9876543210") },
                             shape = RoundedCornerShape(12.dp),
                             singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1315,263 +1499,346 @@ fun AddEditOrderDialog(
                     }
 
                     item {
-                        DividerIndicator()
-                        Text(
-                            text = "JEWEL SPECIFICATIONS",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp),
-                            color = Color(0xFFC5A059)
-                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "JEWELLERY ITEMS (${itemsList.size})",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp),
+                                color = Color(0xFFC5A059)
+                            )
+                        }
                     }
 
-                    // Layout split: Ornaments Type Dropdown (Ring, Necklace, earring etc)
-                    item {
-                        var expandedJewel by remember { mutableStateOf(false) }
-                        ExposedDropdownMenuBox(
-                            expanded = expandedJewel,
-                            onExpandedChange = { expandedJewel = !expandedJewel }
-                        ) {
-                            OutlinedTextField(
-                                value = jewelleryType,
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("Jewellery Ornament") },
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedJewel) },
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
+                    // Multi-item form fields
+                    itemsList.forEachIndexed { index, itemState ->
+                        item {
+                            Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .menuAnchor(),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            ExposedDropdownMenu(
-                                expanded = expandedJewel,
-                                onDismissRequest = { expandedJewel = false }
+                                    .testTag("item_card_$index"),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                                ),
+                                border = BorderStroke(
+                                    width = 0.5.dp,
+                                    color = if (itemsErrorIndex.contains(index)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                                )
                             ) {
-                                jewelleryOptions.forEach { typeOption ->
-                                    DropdownMenuItem(
-                                        text = { Text(typeOption) },
-                                        onClick = {
-                                            jewelleryType = typeOption
-                                            expandedJewel = false
+                                Column(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Item #${index + 1}",
+                                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+
+                                        if (itemsList.size > 1) {
+                                            IconButton(
+                                                onClick = {
+                                                    val newList = itemsList.toMutableList()
+                                                    newList.removeAt(index)
+                                                    itemsList = newList
+                                                }
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = "Remove Item",
+                                                    tint = MaterialTheme.colorScheme.error,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
                                         }
-                                    )
+                                    }
+
+                                    // First Row: Jewellery Type & Metal Type
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        // Jewellery Type TextField (Fully Editable as requested)
+                                        OutlinedTextField(
+                                            value = itemState.jewelleryType,
+                                            onValueChange = { newVal ->
+                                                val newList = itemsList.toMutableList()
+                                                newList[index] = newList[index].copy(jewelleryType = newVal)
+                                                itemsList = newList
+                                            },
+                                            label = { Text("Jewellery Category") },
+                                            placeholder = { Text("e.g. Ring, Necklace") },
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
+                                            modifier = Modifier.weight(1f)
+                                        )
+
+                                        // Metal Type Dropdown with highly responsive click wrapper
+                                        var expandedMetal by remember { mutableStateOf(false) }
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clickable { expandedMetal = true }
+                                        ) {
+                                            OutlinedTextField(
+                                                value = itemState.metalType,
+                                                onValueChange = {},
+                                                readOnly = true,
+                                                enabled = false,
+                                                label = { Text("Metal Archetype") },
+                                                shape = RoundedCornerShape(12.dp),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                                                    disabledBorderColor = MaterialTheme.colorScheme.outline,
+                                                    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                                ),
+                                                trailingIcon = {
+                                                    Icon(Icons.Default.ArrowDropDown, contentDescription = "Show metals")
+                                                },
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                            DropdownMenu(
+                                                expanded = expandedMetal,
+                                                onDismissRequest = { expandedMetal = false }
+                                            ) {
+                                                metalOptions.forEach { option ->
+                                                    DropdownMenuItem(
+                                                        text = { Text(option) },
+                                                        onClick = {
+                                                            val newList = itemsList.toMutableList()
+                                                            val defaultPurity = when (option) {
+                                                                "Gold" -> "91.6"
+                                                                "Silver" -> "92.5"
+                                                                "Platinum" -> "95.0"
+                                                                "Rose Gold" -> "75.0"
+                                                                else -> "91.6"
+                                                            }
+                                                            newList[index] = newList[index].copy(
+                                                                metalType = option,
+                                                                purity = defaultPurity
+                                                            )
+                                                            itemsList = newList
+                                                            expandedMetal = false
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Second Row: Purity Profile & Weight
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        OutlinedTextField(
+                                            value = itemState.purity,
+                                            onValueChange = { value ->
+                                                val newList = itemsList.toMutableList()
+                                                newList[index] = newList[index].copy(purity = value)
+                                                itemsList = newList
+                                            },
+                                            label = { Text("Purity % / Karat") },
+                                            placeholder = { Text("91.6 (22K)") },
+                                            shape = RoundedCornerShape(12.dp),
+                                            singleLine = true,
+                                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
+                                            modifier = Modifier.weight(1f)
+                                        )
+
+                                        OutlinedTextField(
+                                            value = itemState.approxWeight,
+                                            onValueChange = { value ->
+                                                val newList = itemsList.toMutableList()
+                                                newList[index] = newList[index].copy(approxWeight = value)
+                                                itemsList = newList
+                                            },
+                                            label = { Text("Approx Weight (g) *") },
+                                            placeholder = { Text("15.5") },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            shape = RoundedCornerShape(12.dp),
+                                            singleLine = true,
+                                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+
+                                    // Third Row: Agreed Rate Per Gram & Making Charges (%)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        OutlinedTextField(
+                                            value = itemState.agreedRate,
+                                            onValueChange = { value ->
+                                                val newList = itemsList.toMutableList()
+                                                newList[index] = newList[index].copy(agreedRate = value)
+                                                itemsList = newList
+                                            },
+                                            label = { Text("Agreed Rate / g (₹)") },
+                                            placeholder = { Text("7100") },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            shape = RoundedCornerShape(12.dp),
+                                            singleLine = true,
+                                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
+                                            modifier = Modifier.weight(1f)
+                                        )
+
+                                        OutlinedTextField(
+                                            value = itemState.makingCharges,
+                                            onValueChange = { value ->
+                                                val newList = itemsList.toMutableList()
+                                                newList[index] = newList[index].copy(makingCharges = value)
+                                                itemsList = newList
+                                            },
+                                            label = { Text("Making Charges %") },
+                                            placeholder = { Text("12") },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            shape = RoundedCornerShape(12.dp),
+                                            singleLine = true,
+                                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+
+                                    // Fourth Row: Other Charges & Status
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        OutlinedTextField(
+                                            value = itemState.otherCharges,
+                                            onValueChange = { value ->
+                                                val newList = itemsList.toMutableList()
+                                                newList[index] = newList[index].copy(otherCharges = value)
+                                                itemsList = newList
+                                            },
+                                            label = { Text("Stones/Other ₹") },
+                                            placeholder = { Text("500") },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            shape = RoundedCornerShape(12.dp),
+                                            singleLine = true,
+                                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
+                                            modifier = Modifier.weight(1f)
+                                        )
+
+                                        // Status dropdown with highly responsive click wrapper
+                                        var expandedStatus by remember { mutableStateOf(false) }
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clickable { expandedStatus = true }
+                                        ) {
+                                            OutlinedTextField(
+                                                value = itemState.status,
+                                                onValueChange = {},
+                                                readOnly = true,
+                                                enabled = false,
+                                                label = { Text("Delivery Status") },
+                                                shape = RoundedCornerShape(12.dp),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                                                    disabledBorderColor = MaterialTheme.colorScheme.outline,
+                                                    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                                ),
+                                                trailingIcon = {
+                                                    Icon(Icons.Default.ArrowDropDown, contentDescription = "Show statuses")
+                                                },
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                            DropdownMenu(
+                                                expanded = expandedStatus,
+                                                onDismissRequest = { expandedStatus = false }
+                                            ) {
+                                                listOf("Pending", "In Progress", "Completed", "Delivered").forEach { statusOpt ->
+                                                    DropdownMenuItem(
+                                                        text = { Text(statusOpt) },
+                                                        onClick = {
+                                                            val newList = itemsList.toMutableList()
+                                                            newList[index] = newList[index].copy(status = statusOpt)
+                                                            itemsList = newList
+                                                            expandedStatus = false
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Real-time valuation display for this individual item card!
+                                    val itemValuation = calculateItemTotal(itemState)
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 4.dp),
+                                        horizontalArrangement = Arrangement.End
+                                    ) {
+                                        Text(
+                                            text = "Item Total: ₹${String.format(Locale.getDefault(), "%,.2f", itemValuation)}",
+                                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
 
-                    // Layout split: Metal and Purity Profile
                     item {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            // Metal Picker
-                            var expandedMetal by remember { mutableStateOf(false) }
-                            Box(modifier = Modifier.weight(1f)) {
-                                ExposedDropdownMenuBox(
-                                    expanded = expandedMetal,
-                                    onExpandedChange = { expandedMetal = !expandedMetal }
-                                ) {
-                                    OutlinedTextField(
-                                        value = metalType,
-                                        onValueChange = {},
-                                        readOnly = true,
-                                        label = { Text("Metal") },
-                                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
-                                        shape = RoundedCornerShape(12.dp),
-                                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedMetal) },
-                                        modifier = Modifier.menuAnchor()
-                                    )
-                                    ExposedDropdownMenu(
-                                        expanded = expandedMetal,
-                                        onDismissRequest = { expandedMetal = false }
-                                    ) {
-                                        metalOptions.forEach { opt ->
-                                            DropdownMenuItem(
-                                                text = { Text(opt) },
-                                                onClick = {
-                                                    metalType = opt
-                                                    expandedMetal = false
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Purity level Picker
-                            var expandedPurity by remember { mutableStateOf(false) }
-                            Box(modifier = Modifier.weight(1f)) {
-                                ExposedDropdownMenuBox(
-                                    expanded = expandedPurity,
-                                    onExpandedChange = { expandedPurity = !expandedPurity }
-                                ) {
-                                    OutlinedTextField(
-                                        value = purity,
-                                        onValueChange = {},
-                                        readOnly = true,
-                                        label = { Text("Purity / Carat") },
-                                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
-                                        shape = RoundedCornerShape(12.dp),
-                                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedPurity) },
-                                        modifier = Modifier.menuAnchor()
-                                    )
-                                    ExposedDropdownMenu(
-                                        expanded = expandedPurity,
-                                        onDismissRequest = { expandedPurity = false }
-                                    ) {
-                                        activePurityOptions.forEach { opt ->
-                                            DropdownMenuItem(
-                                                text = { Text(opt) },
-                                                onClick = {
-                                                    purity = opt
-                                                    expandedPurity = false
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
+                        Button(
+                            onClick = {
+                                itemsList = itemsList + EditableItem()
+                            },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFC5A059)),
+                            border = BorderStroke(1.dp, Color(0xFFC5A059).copy(alpha = 0.5f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Add another item", modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Add Another Jewellery Item", fontWeight = FontWeight.Bold)
                         }
                     }
 
-                    // Approx weight
+                    item {
+                        DividerIndicator()
+                        Text(
+                            text = "FINANCIALS & DELIVERY TIMELINE",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp),
+                            color = Color(0xFFC5A059)
+                        )
+                    }
+
+                    // Advance Paid Deposit
                     item {
                         OutlinedTextField(
-                            value = approxWeight,
-                            onValueChange = {
-                                approxWeight = it
-                                isWeightError = it.toDoubleOrNull() == null || it.toDouble() <= 0.0
-                            },
-                            label = { Text("Approx Weight * (grams)") },
-                            placeholder = { Text("0.000") },
+                            value = advancePaid,
+                            onValueChange = { advancePaid = it },
+                            label = { Text("Advance Deposit Given (₹)") },
+                            placeholder = { Text("e.g. 1500") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            isError = isWeightError,
-                            supportingText = { if (isWeightError) Text("Please type a valid weight greater than zero") },
-                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
                             shape = RoundedCornerShape(12.dp),
                             singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .testTag("weight_input")
+                                .testTag("advance_input")
                         )
                     }
 
+                    // Delivery Date Picker
                     item {
-                        DividerIndicator()
-                        Text(
-                            text = "FINANCIAL ESTIMATES",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp),
-                            color = Color(0xFFC5A059)
-                        )
-                    }
-
-                    // Agreed rate and Artisan Making charges
-                    item {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            OutlinedTextField(
-                                value = agreedRate,
-                                onValueChange = { agreedRate = it },
-                                label = { Text("Metal Rate ($/g)") },
-                                placeholder = { Text("72.0") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
-                                shape = RoundedCornerShape(12.dp),
-                                singleLine = true,
-                                modifier = Modifier.weight(1f)
-                            )
-
-                            OutlinedTextField(
-                                value = makingCharges,
-                                onValueChange = { makingCharges = it },
-                                label = { Text("Making Charges") },
-                                placeholder = { Text("250.0") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
-                                shape = RoundedCornerShape(12.dp),
-                                singleLine = true,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-
-                    // Option detail row splits of: Stone diamond additions and deposits
-                    item {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            OutlinedTextField(
-                                value = otherCharges,
-                                onValueChange = { otherCharges = it },
-                                label = { Text("Stone/Diamonds ($)") },
-                                placeholder = { Text("0.0") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
-                                shape = RoundedCornerShape(12.dp),
-                                singleLine = true,
-                                modifier = Modifier.weight(1f)
-                            )
-
-                            OutlinedTextField(
-                                value = advancePaid,
-                                onValueChange = { advancePaid = it },
-                                label = { Text("Deposit Advance ($)") },
-                                placeholder = { Text("500.0") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
-                                shape = RoundedCornerShape(12.dp),
-                                singleLine = true,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-
-                    // Live auto billing banner estimate
-                    item {
-                        val wt = approxWeight.toDoubleOrNull() ?: 0.0
-                        val rate = agreedRate.toDoubleOrNull() ?: 0.0
-                        val mak = makingCharges.toDoubleOrNull() ?: 0.0
-                        val stone = otherCharges.toDoubleOrNull() ?: 0.0
-                        val netValue = (wt * rate) + mak + stone
-                        val deposit = advancePaid.toDoubleOrNull() ?: 0.0
-                        val bal = netValue - deposit
-
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFFC5A059).copy(alpha = 0.06f),
-                            border = BorderStroke(0.5.dp, Color(0xFFC5A059).copy(alpha = 0.2f))
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Estimated Order Cost:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("$${String.format(Locale.getDefault(), "%,.2f", netValue)}", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Due on Delivery:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("$${String.format(Locale.getDefault(), "%,.2f", bal)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.ExtraBold), color = Color(0xFFC5A059))
-                                }
-                            }
-                        }
-                    }
-
-                    item {
-                        DividerIndicator()
-                        Text(
-                            text = "DELIVERY & ARTISTRY NOTES",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp),
-                            color = Color(0xFFC5A059)
-                        )
-                    }
-
-                    // Target Delivery date select
-                    item {
-                        val simpleFormat = SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault())
-                        val expectedDateString = simpleFormat.format(Date(expectedDeliveryDate))
-
+                        val expectedDateString = SimpleDateFormat("MMMM d, yyyy", Locale.getDefault()).format(Date(expectedDeliveryDate))
                         Column {
                             Text(text = "Expected Delivery Target Date", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(modifier = Modifier.height(6.dp))
@@ -1593,9 +1860,9 @@ fun AddEditOrderDialog(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                                     .clickable { datePickerDialog.show() }
-                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -1610,93 +1877,76 @@ fun AddEditOrderDialog(
                                     tint = Color(0xFFC5A059)
                                 )
                             }
-
-                            // Quick preset dates
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                listOf(3, 7, 14, 30).forEach { days ->
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                                            .clickable {
-                                                val quickCal = Calendar.getInstance()
-                                                quickCal.add(Calendar.DAY_OF_YEAR, days)
-                                                expectedDeliveryDate = quickCal.timeInMillis
-                                            }
-                                            .padding(vertical = 6.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = "In $days Days",
-                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
                         }
                     }
 
-                    // Artistry engravings detail text
+                    // Custom Notes / Remarks
                     item {
                         OutlinedTextField(
                             value = notes,
                             onValueChange = { notes = it },
-                            label = { Text("Special Artistry & Carving Requirements (engraving size, custom details...)") },
-                            placeholder = { Text("Insert special ring sizes, custom floral motif inscriptions, or diamond details...") },
+                            label = { Text("Special Artistry & Design Notes") },
+                            placeholder = { Text("Provide custom request specifics, gems color, inscriptions...") },
                             shape = RoundedCornerShape(12.dp),
                             minLines = 3,
-                            maxLines = 6,
                             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("notes_input")
                         )
                     }
 
-                    // If editing, status dropdown
-                    if (order != null) {
-                        item {
-                            var expandedStatus by remember { mutableStateOf(false) }
-                            Column {
-                                DividerIndicator()
-                                Text(
-                                    text = "ORDER TIMELINE PROGRESS",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp),
-                                    color = Color(0xFFC5A059)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                ExposedDropdownMenuBox(
-                                    expanded = expandedStatus,
-                                    onExpandedChange = { expandedStatus = !expandedStatus }
+                    // Active aggregate preview breakdown
+                    item {
+                        val computedOverallTotal = itemsList.sumOf { calculateItemTotal(it) }
+                        val givenDeposit = advancePaid.toDoubleOrNull() ?: 0.0
+                        val netBalance = computedOverallTotal - givenDeposit
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    OutlinedTextField(
-                                        value = status,
-                                        onValueChange = {},
-                                        readOnly = true,
-                                        label = { Text("Work Status") },
-                                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
-                                        shape = RoundedCornerShape(12.dp),
-                                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedStatus) },
-                                        modifier = Modifier.menuAnchor()
+                                    Text("Grand Total Charges:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("₹${String.format(Locale.getDefault(), "%,.2f", computedOverallTotal)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Deposit Advance Paid:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("- ₹${String.format(Locale.getDefault(), "%,.2f", givenDeposit)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                                }
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f), modifier = Modifier.padding(vertical = 4.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Net Balance Due:", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                                    Text(
+                                        text = "₹${String.format(Locale.getDefault(), "%,.2f", netBalance)}",
+                                        // Requirement 5: adjust font size dynamically based on value size
+                                        style = if (netBalance >= 100000.0) {
+                                            MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold)
+                                        } else {
+                                            MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold)
+                                        },
+                                        color = if (netBalance > 0) Color(0xFFBA1A1A) else Color(0xFF388E3C),
+                                        modifier = Modifier.testTag("net_balance_text")
                                     )
-                                    ExposedDropdownMenu(
-                                        expanded = expandedStatus,
-                                        onDismissRequest = { expandedStatus = false }
-                                    ) {
-                                        listOf("Pending", "In Progress", "Completed", "Delivered").forEach { statusOpt ->
-                                            DropdownMenuItem(
-                                                text = { Text(statusOpt) },
-                                                onClick = {
-                                                    status = statusOpt
-                                                    expandedStatus = false
-                                                }
-                                            )
-                                        }
-                                    }
                                 }
                             }
                         }
@@ -1724,35 +1974,66 @@ fun AddEditOrderDialog(
                     Button(
                         onClick = {
                             isNameError = customerName.isBlank()
-                            isWeightError = approxWeight.toDoubleOrNull() == null || approxWeight.toDouble() <= 0.0
+                            
+                            // Validate weights of each item
+                            val invalidIndices = itemsList.mapIndexedNotNull { index, item ->
+                                val wt = item.approxWeight.toDoubleOrNull()
+                                if (wt == null || wt <= 0.0) index else null
+                            }.toSet()
+                            itemsErrorIndex = invalidIndices
 
-                            if (!isNameError && !isWeightError) {
-                                val wt = approxWeight.toDoubleOrNull() ?: 0.0
-                                val rate = agreedRate.toDoubleOrNull() ?: 0.0
-                                val mak = makingCharges.toDoubleOrNull() ?: 0.0
-                                val stone = otherCharges.toDoubleOrNull() ?: 0.0
-                                val deposit = advancePaid.toDoubleOrNull() ?: 0.0
-                                val calculatedTotal = (wt * rate) + mak + stone
+                            if (!isNameError && invalidIndices.isEmpty()) {
+                                val finalItems = itemsList.map { item ->
+                                    OrderItem(
+                                        id = item.id,
+                                        jewelleryType = item.jewelleryType,
+                                        metalType = item.metalType,
+                                        purity = item.purity,
+                                        approxWeight = item.approxWeight.toDoubleOrNull() ?: 0.0,
+                                        agreedRate = item.agreedRate.toDoubleOrNull() ?: 0.0,
+                                        makingCharges = item.makingCharges.toDoubleOrNull() ?: 0.0,
+                                        otherCharges = item.otherCharges.toDoubleOrNull() ?: 0.0,
+                                        status = item.status
+                                    )
+                                }
+                                val primaryItem = finalItems.first()
 
-                                val compiledOrder = Order(
+                                // Synthesise primary metrics based on all items
+                                val aggregatedTotalSum = finalItems.sumOf { calculateModelItemTotal(it) }
+                                val aggregatedWeightSum = finalItems.sumOf { it.approxWeight }
+                                
+                                // Overall delivery status: if all items are Delivered -> Delivered; if all are Completed -> Completed; else In Progress / Pending
+                                val overallStatus = when {
+                                    finalItems.all { it.status == "Delivered" } -> "Delivered"
+                                    finalItems.all { it.status == "Completed" || it.status == "Delivered" } -> "Completed"
+                                    finalItems.any { it.status == "In Progress" || it.status == "Completed" } -> "In Progress"
+                                    else -> "Pending"
+                                }
+
+                                val customerOrder = Order(
                                     id = order?.id ?: 0,
                                     customerName = customerName,
                                     customerPhone = customerPhone,
-                                    jewelleryType = jewelleryType,
-                                    metalType = metalType,
-                                    purity = purity,
-                                    approxWeight = wt,
-                                    agreedRate = rate,
-                                    makingCharges = mak,
-                                    otherCharges = stone,
-                                    advancePaid = deposit,
-                                    totalAmount = calculatedTotal,
+                                    jewelleryType = if (finalItems.size > 1) {
+                                        finalItems.joinToString { it.jewelleryType }
+                                    } else {
+                                        primaryItem.jewelleryType
+                                    },
+                                    metalType = primaryItem.metalType,
+                                    purity = primaryItem.purity,
+                                    approxWeight = aggregatedWeightSum,
+                                    agreedRate = primaryItem.agreedRate,
+                                    makingCharges = primaryItem.makingCharges,
+                                    otherCharges = finalItems.sumOf { it.otherCharges },
+                                    advancePaid = advancePaid.toDoubleOrNull() ?: 0.0,
+                                    totalAmount = aggregatedTotalSum,
                                     orderDate = order?.orderDate ?: System.currentTimeMillis(),
                                     expectedDeliveryDate = expectedDeliveryDate,
                                     notes = notes,
-                                    status = status
+                                    status = overallStatus,
+                                    itemsJson = serializeItems(finalItems)
                                 )
-                                onConfirm(compiledOrder)
+                                onConfirm(customerOrder)
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC5A059))
@@ -1775,4 +2056,64 @@ fun DividerIndicator() {
     Spacer(modifier = Modifier.height(10.dp))
     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f))
     Spacer(modifier = Modifier.height(10.dp))
+}
+
+fun serializeOrders(orders: List<Order>): String {
+    val jsonArray = JSONArray()
+    orders.forEach { order ->
+        val jsonObject = JSONObject().apply {
+            put("id", order.id)
+            put("customerName", order.customerName)
+            put("customerPhone", order.customerPhone)
+            put("jewelleryType", order.jewelleryType)
+            put("metalType", order.metalType)
+            put("purity", order.purity)
+            put("approxWeight", order.approxWeight)
+            put("agreedRate", order.agreedRate)
+            put("makingCharges", order.makingCharges)
+            put("otherCharges", order.otherCharges)
+            put("advancePaid", order.advancePaid)
+            put("totalAmount", order.totalAmount)
+            put("orderDate", order.orderDate)
+            put("expectedDeliveryDate", order.expectedDeliveryDate)
+            put("notes", order.notes)
+            put("status", order.status)
+            put("itemsJson", order.itemsJson)
+        }
+        jsonArray.put(jsonObject)
+    }
+    return jsonArray.toString(4)
+}
+
+fun deserializeOrders(jsonStr: String): List<Order> {
+    val list = mutableListOf<Order>()
+    try {
+        val jsonArray = JSONArray(jsonStr)
+        for (i in 0 until jsonArray.length()) {
+            val jsonObject = jsonArray.getJSONObject(i)
+            val order = Order(
+                id = jsonObject.optInt("id", 0),
+                customerName = jsonObject.optString("customerName", ""),
+                customerPhone = jsonObject.optString("customerPhone", ""),
+                jewelleryType = jsonObject.optString("jewelleryType", ""),
+                metalType = jsonObject.optString("metalType", ""),
+                purity = jsonObject.optString("purity", ""),
+                approxWeight = jsonObject.optDouble("approxWeight", 0.0),
+                agreedRate = jsonObject.optDouble("agreedRate", 0.0),
+                makingCharges = jsonObject.optDouble("makingCharges", 0.0),
+                otherCharges = jsonObject.optDouble("otherCharges", 0.0),
+                advancePaid = jsonObject.optDouble("advancePaid", 0.0),
+                totalAmount = jsonObject.optDouble("totalAmount", 0.0),
+                orderDate = jsonObject.optLong("orderDate", System.currentTimeMillis()),
+                expectedDeliveryDate = jsonObject.optLong("expectedDeliveryDate", System.currentTimeMillis()),
+                notes = jsonObject.optString("notes", ""),
+                status = jsonObject.optString("status", "Pending"),
+                itemsJson = jsonObject.optString("itemsJson", "")
+            )
+            list.add(order)
+        }
+    } catch (e: Exception) {
+         e.printStackTrace()
+    }
+    return list
 }

@@ -1,6 +1,6 @@
 {
-  "name": "Jewellery Orders",
-  "description": "An elegant, offline-first application for taking and managing custom jewellery orders, tracking specifications like weight, purity, deposits, and delivery status.",
+  "name": "Suhas Jewellers",
+  "description": "An elegant, offline-first application for taking and managing custom jewellery orders for Suhas Jewellers, tracking specifications like weight, purity, deposits, and delivery status.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

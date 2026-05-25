@@ -3,6 +3,6 @@
     <item
         android:width="72dp"
         android:height="72dp"
-        android:drawable="@drawable/ic_jewel_logo_1779627754079"
+        android:drawable="@drawable/suhas_jewel_logo_1779636257842"
         android:gravity="center" />
 </layer-list>

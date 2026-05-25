@@ -2,6 +2,9 @@ package com.example.data
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.UUID
 
 @Entity(tableName = "orders")
 data class Order(
@@ -20,5 +23,79 @@ data class Order(
     val orderDate: Long = System.currentTimeMillis(),
     val expectedDeliveryDate: Long,
     val notes: String = "",
-    val status: String = "Pending" // Pending, In Progress, Completed, Delivered
+    val status: String = "Pending", // Pending, In Progress, Completed, Delivered
+    val itemsJson: String = "" // Multiple items tracker JSON serialization
 )
+
+data class OrderItem(
+    val id: String = UUID.randomUUID().toString(),
+    val jewelleryType: String = "",
+    val metalType: String = "Gold",
+    val purity: String = "91.6",
+    val approxWeight: Double = 0.0,
+    val agreedRate: Double = 0.0,
+    val makingCharges: Double = 0.0,
+    val otherCharges: Double = 0.0,
+    val status: String = "Pending"
+)
+
+fun Order.getItems(): List<OrderItem> {
+    if (itemsJson.isNullOrBlank()) {
+        return listOf(
+            OrderItem(
+                id = "primary",
+                jewelleryType = this.jewelleryType,
+                metalType = this.metalType,
+                purity = this.purity,
+                approxWeight = this.approxWeight,
+                agreedRate = this.agreedRate,
+                makingCharges = this.makingCharges,
+                otherCharges = this.otherCharges,
+                status = this.status
+            )
+        )
+    }
+    val list = mutableListOf<OrderItem>()
+    try {
+        val array = JSONArray(itemsJson)
+        for (i in 0 until array.length()) {
+            val obj = array.getJSONObject(i)
+            list.add(
+                OrderItem(
+                    id = obj.optString("id", UUID.randomUUID().toString()),
+                    jewelleryType = obj.optString("jewelleryType", ""),
+                    metalType = obj.optString("metalType", "Gold"),
+                    purity = obj.optString("purity", "91.6"),
+                    approxWeight = obj.optDouble("approxWeight", 0.0),
+                    agreedRate = obj.optDouble("agreedRate", 0.0),
+                    makingCharges = obj.optDouble("makingCharges", 0.0),
+                    otherCharges = obj.optDouble("otherCharges", 0.0),
+                    status = obj.optString("status", "Pending")
+                )
+            )
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+    return list
+}
+
+fun serializeItems(items: List<OrderItem>): String {
+    val array = JSONArray()
+    items.forEach { item ->
+        val obj = JSONObject().apply {
+            put("id", item.id)
+            put("jewelleryType", item.jewelleryType)
+            put("metalType", item.metalType)
+            put("purity", item.purity)
+            put("approxWeight", item.approxWeight)
+            put("agreedRate", item.agreedRate)
+            put("makingCharges", item.makingCharges)
+            put("otherCharges", item.otherCharges)
+            put("status", item.status)
+        }
+        array.put(obj)
+    }
+    return array.toString()
+}
+

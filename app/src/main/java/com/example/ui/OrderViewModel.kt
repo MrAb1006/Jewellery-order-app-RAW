@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.data.Order
 import com.example.data.OrderRepository
+import com.example.data.getItems
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.util.Calendar
@@ -13,10 +14,14 @@ class OrderViewModel(private val repository: OrderRepository) : ViewModel() {
 
     init {
         viewModelScope.launch {
-            repository.allOrders.first().let { currentOrders ->
-                if (currentOrders.isEmpty()) {
-                    seedInitialData()
+            try {
+                repository.allOrders.first().let { currentOrders ->
+                    if (currentOrders.isEmpty()) {
+                        seedInitialData()
+                    }
                 }
+            } catch (e: Exception) {
+                android.util.Log.e("OrderViewModel", "Failed to retrieve or seed initial database data", e)
             }
         }
     }
@@ -39,36 +44,38 @@ class OrderViewModel(private val repository: OrderRepository) : ViewModel() {
     ) { orders, query, status, sort ->
         var result = orders
 
-            // Apply Search Query
-            if (query.isNotBlank()) {
-                val q = query.lowercase().trim()
-                result = result.filter {
-                    it.customerName.lowercase().contains(q) ||
-                    it.customerPhone.contains(q) ||
-                    it.jewelleryType.lowercase().contains(q) ||
-                    it.metalType.lowercase().contains(q) ||
-                    it.purity.lowercase().contains(q) ||
-                    it.notes.lowercase().contains(q)
-                }
+        // Apply Search Query
+        if (query.isNotBlank()) {
+            val q = query.lowercase().trim()
+            result = result.filter {
+                it.customerName.lowercase().contains(q) ||
+                it.customerPhone.contains(q) ||
+                it.jewelleryType.lowercase().contains(q) ||
+                it.metalType.lowercase().contains(q) ||
+                it.purity.lowercase().contains(q) ||
+                it.notes.lowercase().contains(q)
             }
+        }
 
-            // Apply Status Filter
-            if (status != "All") {
-                result = result.filter { it.status == status }
+        // Apply Status Filter
+        if (status != "All") {
+            result = result.filter { order ->
+                order.status == status || order.getItems().any { item -> item.status == status }
             }
+        }
 
-            // Apply Sorting
-            result = when (sort) {
-                "Newest" -> result.sortedByDescending { it.orderDate }
-                "Oldest" -> result.sortedBy { it.orderDate }
-                "Delivery Soonest" -> result.sortedBy { it.expectedDeliveryDate }
-                "Delivery Latest" -> result.sortedByDescending { it.expectedDeliveryDate }
-                "Value Highest" -> result.sortedByDescending { it.totalAmount }
-                "Value Lowest" -> result.sortedBy { it.totalAmount }
-                else -> result.sortedByDescending { it.orderDate }
-            }
+        // Apply Sorting
+        result = when (sort) {
+            "Newest" -> result.sortedByDescending { it.orderDate }
+            "Oldest" -> result.sortedBy { it.orderDate }
+            "Delivery Soonest" -> result.sortedBy { it.expectedDeliveryDate }
+            "Delivery Latest" -> result.sortedByDescending { it.expectedDeliveryDate }
+            "Value Highest" -> result.sortedByDescending { it.totalAmount }
+            "Value Lowest" -> result.sortedBy { it.totalAmount }
+            else -> result.sortedByDescending { it.orderDate }
+        }
 
-            result
+        result
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -165,13 +172,13 @@ class OrderViewModel(private val repository: OrderRepository) : ViewModel() {
             customerPhone = "+1 555-8932",
             jewelleryType = "Gold Bridal Necklace",
             metalType = "Gold",
-            purity = "22K (916)",
+            purity = "91.6",
             approxWeight = 42.5,
             agreedRate = 72.0,
-            makingCharges = 350.0,
+            makingCharges = 12.0, // 12% making charges
             otherCharges = 120.0,
             advancePaid = 1500.0,
-            totalAmount = 42.5 * 72.0 + 350.0 + 120.0, // 3530.0
+            totalAmount = (42.5 * 72.0 * (91.6 / 100.0)) * (1 + 12.0 / 100.0) + 120.0, // 3259.32
             orderDate = now - (3 * 24 * 3600 * 1000L), // 3 days ago
             expectedDeliveryDate = now + (10 * 24 * 3600 * 1000L), // 10 days from now
             notes = "Engagement necklace. Traditional paisley design with central ruby stone. Smooth high polish backing.",
@@ -183,13 +190,13 @@ class OrderViewModel(private val repository: OrderRepository) : ViewModel() {
             customerPhone = "+1 555-0149",
             jewelleryType = "Diamond Wedding Ring",
             metalType = "Platinum",
-            purity = "Pt950",
+            purity = "95.0",
             approxWeight = 6.2,
             agreedRate = 95.0,
-            makingCharges = 280.0,
+            makingCharges = 15.0, // 15% making charges
             otherCharges = 850.0, // Solitaire diamond
             advancePaid = 500.0,
-            totalAmount = 6.2 * 95.0 + 280.0 + 850.0, // 1719.0
+            totalAmount = (6.2 * 95.0 * (95.0 / 100.0)) * (1 + 15.0 / 100.0) + 850.0, // 1493.48
             orderDate = now - (1 * 24 * 3600 * 1000L), // 1 day ago
             expectedDeliveryDate = now + (5 * 24 * 3600 * 1000L), // 5 days from now
             notes = "Prong setting for central solitaire diamond 0.5ct. Inscribe inside band: 'M & S - Eternal'. Ring size: 6.5.",
@@ -201,13 +208,13 @@ class OrderViewModel(private val repository: OrderRepository) : ViewModel() {
             customerPhone = "+1 555-4421",
             jewelleryType = "Teardrop Emerald Earrings",
             metalType = "Rose Gold",
-            purity = "18K (750)",
+            purity = "75.0",
             approxWeight = 12.8,
             agreedRate = 60.0,
-            makingCharges = 180.0,
+            makingCharges = 10.0, // 10% making charges
             otherCharges = 500.0, // Genuine Brazilian emeralds
             advancePaid = 1000.0,
-            totalAmount = 12.8 * 60.0 + 180.0 + 500.0, // 1448.0
+            totalAmount = (12.8 * 60.0 * (75.0 / 100.0)) * (1 + 10.0 / 100.0) + 500.0, // 1133.6
             orderDate = now - (5 * 24 * 3600 * 1000L), // 5 days ago
             expectedDeliveryDate = now + (1 * 24 * 3600 * 1000L), // tomorrow (1 day from now, showing due soon/ready)
             notes = "Matched pair. Hanging teardrop emeralds with micro pave diamonds surround. Comfort screw backing.",
@@ -219,13 +226,13 @@ class OrderViewModel(private val repository: OrderRepository) : ViewModel() {
             customerPhone = "+1 555-9012",
             jewelleryType = "Heavy Gold Kada",
             metalType = "Gold",
-            purity = "24K (Pure)",
+            purity = "100.0",
             approxWeight = 55.0,
             agreedRate = 75.0,
-            makingCharges = 450.0,
+            makingCharges = 8.0, // 8% making charges
             otherCharges = 0.0,
             advancePaid = 2000.0,
-            totalAmount = 55.0 * 75.0 + 450.0, // 4575.0
+            totalAmount = (55.0 * 75.0 * (100.0 / 100.0)) * (1 + 8.0 / 100.0), // 4455.0
             orderDate = now - (14 * 24 * 3600 * 1000L), // 14 days ago
             expectedDeliveryDate = now - (2 * 24 * 3600 * 1000L), // delivered 2 days ago
             notes = "Solid gold custom hand carved floral motif. Internal engraving ID '999 AU'. Weight exactly 55.0 grams.",

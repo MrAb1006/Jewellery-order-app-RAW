@@ -45,6 +45,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.Saver
+import java.io.Serializable
 import com.example.data.Order
 import com.example.data.OrderItem
 import com.example.data.OldOrderItem
@@ -70,12 +73,15 @@ fun DashboardScreen(
     val statusFilter by viewModel.statusFilter.collectAsStateWithLifecycle()
     val sortBy by viewModel.sortBy.collectAsStateWithLifecycle()
 
-    var showAddDialog by remember { mutableStateOf(false) }
-    var selectedOrderForDetail by remember { mutableStateOf<Order?>(null) }
-    var selectedOrderForEdit by remember { mutableStateOf<Order?>(null) }
+    var showAddDialog by rememberSaveable { mutableStateOf(false) }
+    var selectedOrderForDetailId by rememberSaveable { mutableStateOf<Int?>(null) }
+    var selectedOrderForEditId by rememberSaveable { mutableStateOf<Int?>(null) }
+    
+    val selectedOrderForDetail = orders.find { it.id == selectedOrderForDetailId }
+    val selectedOrderForEdit = orders.find { it.id == selectedOrderForEditId }
     
     val deletedOrders by viewModel.deletedOrders.collectAsStateWithLifecycle()
-    var showActivityDialog by remember { mutableStateOf(false) }
+    var showActivityDialog by rememberSaveable { mutableStateOf(false) }
 
     // Launcher for creating a backup file (export)
     val exportLauncher = rememberLauncherForActivityResult(
@@ -458,7 +464,7 @@ fun DashboardScreen(
                     items(orders, key = { it.id }) { order ->
                         OrderCard(
                             order = order,
-                            onClick = { selectedOrderForDetail = order }
+                            onClick = { selectedOrderForDetailId = order.id }
                         )
                     }
                 }
@@ -470,7 +476,7 @@ fun DashboardScreen(
     selectedOrderForDetail?.let { order ->
         OrderDetailDialog(
             order = order,
-            onDismiss = { selectedOrderForDetail = null },
+            onDismiss = { selectedOrderForDetailId = null },
             onUpdateItemStatus = { itemIndex, newStatus ->
                 val currentItems = order.getItems().toMutableList()
                 if (itemIndex in currentItems.indices) {
@@ -491,16 +497,14 @@ fun DashboardScreen(
                 )
 
                 viewModel.updateOrder(updatedOrder)
-                // Refresh local dialog state instantly
-                selectedOrderForDetail = updatedOrder
             },
             onEdit = {
-                selectedOrderForEdit = order
-                selectedOrderForDetail = null
+                selectedOrderForEditId = order.id
+                selectedOrderForDetailId = null
             },
             onDelete = {
                 viewModel.deleteOrder(order)
-                selectedOrderForDetail = null
+                selectedOrderForDetailId = null
                 Toast.makeText(context, "Order deleted successfully", Toast.LENGTH_SHORT).show()
             }
         )
@@ -523,10 +527,10 @@ fun DashboardScreen(
     selectedOrderForEdit?.let { order ->
         AddEditOrderDialog(
             order = order,
-            onDismiss = { selectedOrderForEdit = null },
+            onDismiss = { selectedOrderForEditId = null },
             onConfirm = { updatedOrder ->
                 viewModel.updateOrder(updatedOrder)
-                selectedOrderForEdit = null
+                selectedOrderForEditId = null
                 Toast.makeText(context, "Order details updated!", Toast.LENGTH_SHORT).show()
             }
         )
@@ -904,7 +908,7 @@ fun OrderDetailDialog(
     onDelete: () -> Unit
 ) {
     val context = LocalContext.current
-    var isConfirmDeleteState by remember { mutableStateOf(false) }
+    var isConfirmDeleteState by rememberSaveable { mutableStateOf(false) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -1251,6 +1255,33 @@ fun BillingTicket(order: Order) {
     val oldItems = order.getOldItems()
     val balanceDue = order.totalAmount - order.advancePaid
 
+    val totalMakingCharges = items.sumOf { item ->
+        val purityPercent = (item.purity.toDoubleOrNull() ?: 100.0) / 100.0
+        val metalValValue = item.approxWeight * item.agreedRate * purityPercent
+        val isSilver = item.metalType.equals("Silver", ignoreCase = true)
+        if (isSilver) item.makingCharges else (metalValValue * (item.makingCharges / 100.0))
+    }
+
+    val newGoldFineValug = items.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
+        val purityPercent = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
+        it.approxWeight * purityPercent * it.agreedRate
+    }
+    val oldGoldFineValug = oldItems.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
+        calculateOldItemValuation(it, items)
+    }
+    val netGoldFineValug = newGoldFineValug - oldGoldFineValug
+
+    val newSilverFineValug = items.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
+        val purityPercent = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
+        it.approxWeight * purityPercent * it.agreedRate
+    }
+    val oldSilverFineValug = oldItems.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
+        calculateOldItemValuation(it, items)
+    }
+    val netSilverFineValug = newSilverFineValug - oldSilverFineValug
+
+    val netRequiredMetalFineValuation = netGoldFineValug + netSilverFineValug
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
@@ -1387,6 +1418,33 @@ fun BillingTicket(order: Order) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                Text(text = "Total Making Charges:", style = MaterialTheme.typography.bodySmall, color = Color(0xFF5C5243))
+                Text(
+                    text = "₹${String.format(Locale.getDefault(), "%,.0f", totalMakingCharges)}",
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                    color = Color(0xFF2C251C)
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = "Valuation of Net Req. Metal Fine:", style = MaterialTheme.typography.bodySmall, color = Color(0xFF5C5243))
+                Text(
+                    text = "₹${String.format(Locale.getDefault(), "%,.0f", netRequiredMetalFineValuation)}",
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                    color = Color(0xFF2C251C)
+                )
+            }
+            Spacer(modifier = Modifier.padding(vertical = 1.dp))
+            HorizontalDivider(color = Color(0xFFEADBBE).copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 4.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(text = "TOTAL ESTIMATED CHARGES", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Black), color = Color(0xFF2C251C))
                 Text(
                     text = "₹${String.format(Locale.getDefault(), "%,.0f", order.totalAmount)}",
@@ -1449,7 +1507,7 @@ data class EditableItem(
     val makingCharges: String = "0",
     val otherCharges: String = "0",
     val status: String = "Pending"
-)
+) : Serializable
 
 data class EditableOldItem(
     val id: String = UUID.randomUUID().toString(),
@@ -1458,6 +1516,108 @@ data class EditableOldItem(
     val approxWeight: String = "",
     val purity: String = "91.6",
     val agreedRate: String = ""
+) : Serializable
+
+fun serializeEditableItems(list: List<EditableItem>): String {
+    val arr = JSONArray()
+    for (item in list) {
+        val obj = JSONObject()
+        obj.put("id", item.id)
+        obj.put("jewelleryType", item.jewelleryType)
+        obj.put("metalType", item.metalType)
+        obj.put("purity", item.purity)
+        obj.put("approxWeight", item.approxWeight)
+        obj.put("agreedRate", item.agreedRate)
+        obj.put("makingCharges", item.makingCharges)
+        obj.put("otherCharges", item.otherCharges)
+        obj.put("status", item.status)
+        arr.put(obj)
+    }
+    return arr.toString()
+}
+
+fun deserializeEditableItems(json: String): List<EditableItem> {
+    if (json.isBlank()) return listOf(EditableItem())
+    val list = mutableListOf<EditableItem>()
+    try {
+        val arr = JSONArray(json)
+        for (i in 0 until arr.length()) {
+            val obj = arr.getJSONObject(i)
+            list.add(
+                EditableItem(
+                    id = obj.optString("id", UUID.randomUUID().toString()),
+                    jewelleryType = obj.optString("jewelleryType", "Ring"),
+                    metalType = obj.optString("metalType", "Gold"),
+                    purity = obj.optString("purity", "91.6"),
+                    approxWeight = obj.optString("approxWeight", ""),
+                    agreedRate = obj.optString("agreedRate", ""),
+                    makingCharges = obj.optString("makingCharges", "0"),
+                    otherCharges = obj.optString("otherCharges", "0"),
+                    status = obj.optString("status", "Pending")
+                )
+            )
+        }
+    } catch (e: java.lang.Exception) {
+        e.printStackTrace()
+    }
+    if (list.isEmpty()) {
+        list.add(EditableItem())
+    }
+    return list
+}
+
+fun serializeEditableOldItems(list: List<EditableOldItem>): String {
+    val arr = JSONArray()
+    for (item in list) {
+        val obj = JSONObject()
+        obj.put("id", item.id)
+        obj.put("itemName", item.itemName)
+        obj.put("metalType", item.metalType)
+        obj.put("approxWeight", item.approxWeight)
+        obj.put("purity", item.purity)
+        obj.put("agreedRate", item.agreedRate)
+        arr.put(obj)
+    }
+    return arr.toString()
+}
+
+fun deserializeEditableOldItems(json: String): List<EditableOldItem> {
+    if (json.isBlank()) return emptyList()
+    val list = mutableListOf<EditableOldItem>()
+    try {
+        val arr = JSONArray(json)
+        for (i in 0 until arr.length()) {
+            val obj = arr.getJSONObject(i)
+            list.add(
+                EditableOldItem(
+                    id = obj.optString("id", UUID.randomUUID().toString()),
+                    itemName = obj.optString("itemName", ""),
+                    metalType = obj.optString("metalType", "Gold"),
+                    approxWeight = obj.optString("approxWeight", ""),
+                    purity = obj.optString("purity", "91.6"),
+                    agreedRate = obj.optString("agreedRate", "")
+                )
+            )
+        }
+    } catch (e: java.lang.Exception) {
+        e.printStackTrace()
+    }
+    return list
+}
+
+val EditableItemsSaver = Saver<List<EditableItem>, String>(
+    save = { list -> serializeEditableItems(list) },
+    restore = { json -> deserializeEditableItems(json) }
+)
+
+val EditableOldItemsSaver = Saver<List<EditableOldItem>, String>(
+    save = { list -> serializeEditableOldItems(list) },
+    restore = { json -> deserializeEditableOldItems(json) }
+)
+
+val IntSetSaver = Saver<Set<Int>, IntArray>(
+    save = { set -> set.toIntArray() },
+    restore = { array -> array.toSet() }
 )
 
 fun calculateOldItemValuation(oldItem: OldOrderItem, items: List<OrderItem>): Double {
@@ -1521,11 +1681,11 @@ fun AddEditOrderDialog(
 ) {
     val context = LocalContext.current
 
-    var customerName by remember { mutableStateOf(order?.customerName ?: "") }
-    var customerPhone by remember { mutableStateOf(order?.customerPhone ?: "") }
+    var customerName by rememberSaveable { mutableStateOf(order?.customerName ?: "") }
+    var customerPhone by rememberSaveable { mutableStateOf(order?.customerPhone ?: "") }
     
     // Track the list of editable jewellery items!
-    var itemsList by remember {
+    var itemsList by rememberSaveable(stateSaver = EditableItemsSaver) {
         mutableStateOf(
             order?.getItems()?.map { item ->
                 EditableItem(
@@ -1543,7 +1703,7 @@ fun AddEditOrderDialog(
         )
     }
 
-    var oldItemsList by remember {
+    var oldItemsList by rememberSaveable(stateSaver = EditableOldItemsSaver) {
         mutableStateOf<List<EditableOldItem>>(
             order?.getOldItems()?.map { item ->
                 EditableOldItem(
@@ -1558,8 +1718,8 @@ fun AddEditOrderDialog(
         )
     }
 
-    var advancePaid by remember { mutableStateOf(order?.advancePaid?.toString() ?: "0") }
-    var notes by remember { mutableStateOf(order?.notes ?: "") }
+    var advancePaid by rememberSaveable { mutableStateOf(order?.advancePaid?.toString() ?: "0") }
+    var notes by rememberSaveable { mutableStateOf(order?.notes ?: "") }
 
     val defaultCal = Calendar.getInstance()
     if (order != null) {
@@ -1567,12 +1727,12 @@ fun AddEditOrderDialog(
     } else {
         defaultCal.add(Calendar.DAY_OF_YEAR, 7) // Default 7 days from now
     }
-    var expectedDeliveryDate by remember { mutableStateOf(defaultCal.timeInMillis) }
+    var expectedDeliveryDate by rememberSaveable { mutableStateOf(defaultCal.timeInMillis) }
 
     // Live Validation State
-    var isNameError by remember { mutableStateOf(false) }
-    var itemsErrorIndex by remember { mutableStateOf<Set<Int>>(emptySet()) }
-    var oldItemsErrorIndex by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var isNameError by rememberSaveable { mutableStateOf(false) }
+    var itemsErrorIndex by rememberSaveable(stateSaver = IntSetSaver) { mutableStateOf<Set<Int>>(emptySet()) }
+    var oldItemsErrorIndex by rememberSaveable(stateSaver = IntSetSaver) { mutableStateOf<Set<Int>>(emptySet()) }
 
     fun updateItemSafe(index: Int, block: (EditableItem) -> EditableItem) {
         val newList = itemsList.toMutableList()
@@ -2239,6 +2399,17 @@ fun AddEditOrderDialog(
                         }
                         val netGoldFine = newGoldFine - oldGoldFine
 
+                        val liveNewGoldFineValug = itemsList.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
+                            val wt = it.approxWeight.toDoubleOrNull() ?: 0.0
+                            val pur = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
+                            val rate = it.agreedRate.toDoubleOrNull() ?: 0.0
+                            wt * pur * rate
+                        }
+                        val liveOldGoldFineValug = oldItemsList.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
+                            calculateOldItemValuationEditable(it, itemsList)
+                        }
+                        val liveNetGoldFineValug = liveNewGoldFineValug - liveOldGoldFineValug
+
                         val newSilverFine = itemsList.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
                             val wt = it.approxWeight.toDoubleOrNull() ?: 0.0
                             val pur = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
@@ -2250,6 +2421,17 @@ fun AddEditOrderDialog(
                             wt * pur
                         }
                         val netSilverFine = newSilverFine - oldSilverFine
+
+                        val liveNewSilverFineValug = itemsList.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
+                            val wt = it.approxWeight.toDoubleOrNull() ?: 0.0
+                            val pur = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
+                            val rate = it.agreedRate.toDoubleOrNull() ?: 0.0
+                            wt * pur * rate
+                        }
+                        val liveOldSilverFineValug = oldItemsList.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
+                            calculateOldItemValuationEditable(it, itemsList)
+                        }
+                        val liveNetSilverFineValug = liveNewSilverFineValug - liveOldSilverFineValug
 
                         Card(
                             modifier = Modifier
@@ -2277,8 +2459,12 @@ fun AddEditOrderDialog(
                                     Text("- ${String.format(Locale.getDefault(), "%.3f", oldGoldFine)} g", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = Color(0xFF137333)))
                                 }
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("Net Required Gold Fine:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold))
-                                    Text("${String.format(Locale.getDefault(), "%.3f", netGoldFine)} g", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = if (netGoldFine >= 0) Color(0xFFC5A059) else Color(0xFF137333)))
+                                    Text("Net Required Gold Fine:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("${String.format(Locale.getDefault(), "%.3f", netGoldFine)} g", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Valuation of Net Gold Fine:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold))
+                                    Text("₹${String.format(Locale.getDefault(), "%,.2f", liveNetGoldFineValug)}", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = if (liveNetGoldFineValug >= 0) Color(0xFFC5A059) else Color(0xFF137333)))
                                 }
 
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 4.dp))
@@ -2294,8 +2480,12 @@ fun AddEditOrderDialog(
                                     Text("- ${String.format(Locale.getDefault(), "%.3f", oldSilverFine)} g", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = Color(0xFF137333)))
                                 }
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("Net Required Silver Fine:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold))
-                                    Text("${String.format(Locale.getDefault(), "%.3f", netSilverFine)} g", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = if (netSilverFine >= 0) Color(0xFF7F8C8D) else Color(0xFF137333)))
+                                    Text("Net Required Silver Fine:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("${String.format(Locale.getDefault(), "%.3f", netSilverFine)} g", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Valuation of Net Silver Fine:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold))
+                                    Text("₹${String.format(Locale.getDefault(), "%,.2f", liveNetSilverFineValug)}", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = if (liveNetSilverFineValug >= 0) Color(0xFF7F8C8D) else Color(0xFF137333)))
                                 }
                             }
                         }
@@ -2392,6 +2582,41 @@ fun AddEditOrderDialog(
                         val computedOverallTotal = itemsList.sumOf { calculateItemTotal(it) }
                         val totalExchangeCredit = oldItemsList.sumOf { calculateOldItemValuationEditable(it, itemsList) }
 
+                        val liveTotalMakingCharges = itemsList.sumOf { item ->
+                            val wt = item.approxWeight.toDoubleOrNull() ?: 0.0
+                            val rate = item.agreedRate.toDoubleOrNull() ?: 0.0
+                            val mak = item.makingCharges.toDoubleOrNull() ?: 0.0
+                            val purityProfile = item.purity.toDoubleOrNull() ?: 100.0
+                            val purityPercent = purityProfile / 100.0
+                            val rawCost = wt * rate * purityPercent
+                            val isSilver = item.metalType.equals("Silver", ignoreCase = true)
+                            if (isSilver) mak else (rawCost * (mak / 100.0))
+                        }
+
+                        val liveNewGoldFineValug = itemsList.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
+                            val wt = it.approxWeight.toDoubleOrNull() ?: 0.0
+                            val pur = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
+                            val rate = it.agreedRate.toDoubleOrNull() ?: 0.0
+                            wt * pur * rate
+                        }
+                        val liveOldGoldFineValug = oldItemsList.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
+                            calculateOldItemValuationEditable(it, itemsList)
+                        }
+                        val liveNetGoldFineValug = liveNewGoldFineValug - liveOldGoldFineValug
+
+                        val liveNewSilverFineValug = itemsList.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
+                            val wt = it.approxWeight.toDoubleOrNull() ?: 0.0
+                            val pur = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
+                            val rate = it.agreedRate.toDoubleOrNull() ?: 0.0
+                            wt * pur * rate
+                        }
+                        val liveOldSilverFineValug = oldItemsList.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
+                            calculateOldItemValuationEditable(it, itemsList)
+                        }
+                        val liveNetSilverFineValug = liveNewSilverFineValug - liveOldSilverFineValug
+
+                        val liveNetRequiredMetalFineValuation = liveNetGoldFineValug + liveNetSilverFineValug
+
                         val finalPayableAmount = maxOf(0.0, computedOverallTotal - totalExchangeCredit)
                         val givenDeposit = advancePaid.toDoubleOrNull() ?: 0.0
                         val netBalance = finalPayableAmount - givenDeposit
@@ -2425,6 +2650,22 @@ fun AddEditOrderDialog(
                                         Text("- ₹${String.format(Locale.getDefault(), "%,.2f", totalExchangeCredit)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold, color = Color(0xFF137333)))
                                     }
                                 }
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 2.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Total Making Charges:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("₹${String.format(Locale.getDefault(), "%,.2f", liveTotalMakingCharges)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Valuation of Net Req. Metal Fine:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("₹${String.format(Locale.getDefault(), "%,.2f", liveNetRequiredMetalFineValuation)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                                }
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 2.dp))
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
@@ -2818,6 +3059,15 @@ fun MetalBalancingSheet(order: Order) {
     }
     val netGoldFine = newGoldFine - oldGoldFine
 
+    val newGoldFineValug = items.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
+        val purPercent = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
+        it.approxWeight * purPercent * it.agreedRate
+    }
+    val oldGoldFineValug = oldItems.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
+        calculateOldItemValuation(it, items)
+    }
+    val netGoldFineValug = newGoldFineValug - oldGoldFineValug
+
     // Aggregates for Silver
     val newSilverFine = items.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
         val purPercent = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
@@ -2827,6 +3077,15 @@ fun MetalBalancingSheet(order: Order) {
         it.approxWeight * (it.purity / 100.0)
     }
     val netSilverFine = newSilverFine - oldSilverFine
+
+    val newSilverFineValug = items.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
+        val purPercent = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
+        it.approxWeight * purPercent * it.agreedRate
+    }
+    val oldSilverFineValug = oldItems.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
+        calculateOldItemValuation(it, items)
+    }
+    val netSilverFineValug = newSilverFineValug - oldSilverFineValug
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -2858,10 +3117,17 @@ fun MetalBalancingSheet(order: Order) {
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 2.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("  · Net Gold Fine Required:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                    Text("  · Net Gold Fine Required:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
                         text = "${String.format(Locale.getDefault(), "%.3f", netGoldFine)} g",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = if (netGoldFine >= 0) Color(0xFFC5A059) else Color(0xFF137333))
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("  · Valuation of Net Gold Fine:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        text = "₹${String.format(Locale.getDefault(), "%,.2f", netGoldFineValug)}",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = if (netGoldFineValug >= 0) Color(0xFFC5A059) else Color(0xFF137333))
                     )
                 }
             }
@@ -2885,10 +3151,17 @@ fun MetalBalancingSheet(order: Order) {
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 2.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("  · Net Silver Fine Required:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                    Text("  · Net Silver Fine Required:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
                         text = "${String.format(Locale.getDefault(), "%.3f", netSilverFine)} g",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = if (netSilverFine >= 0) Color(0xFF7F8C8D) else Color(0xFF137333))
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("  · Valuation of Net Silver Fine:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        text = "₹${String.format(Locale.getDefault(), "%,.2f", netSilverFineValug)}",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = if (netSilverFineValug >= 0) Color(0xFF7F8C8D) else Color(0xFF137333))
                     )
                 }
             }
@@ -2905,7 +3178,7 @@ fun ActivityLogDialog(
     onDeletePermanently: (Int) -> Unit,
     onClearAll: () -> Unit
 ) {
-    var showConfirmClearAll by remember { mutableStateOf(false) }
+    var showConfirmClearAll by rememberSaveable { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,

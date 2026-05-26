@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.Serializable
 import java.util.UUID
 
 @Entity(tableName = "orders")
@@ -26,7 +27,7 @@ data class Order(
     val status: String = "Pending", // Pending, In Progress, Completed, Delivered
     val itemsJson: String = "", // Multiple items tracker JSON serialization
     val oldItemsJson: String = "" // Old jewellery received JSON serialization
-)
+) : Serializable
 
 data class OrderItem(
     val id: String = UUID.randomUUID().toString(),
@@ -38,7 +39,7 @@ data class OrderItem(
     val makingCharges: Double = 0.0,
     val otherCharges: Double = 0.0,
     val status: String = "Pending"
-)
+) : Serializable
 
 data class OldOrderItem(
     val id: String = UUID.randomUUID().toString(),
@@ -47,7 +48,7 @@ data class OldOrderItem(
     val approxWeight: Double = 0.0,
     val purity: Double = 0.0, // represented as percentage, e.g. 90.0 meaning 90%
     val agreedRate: Double = 0.0
-)
+) : Serializable
 
 fun Order.getOldItems(): List<OldOrderItem> {
     val json = this.oldItemsJson ?: ""

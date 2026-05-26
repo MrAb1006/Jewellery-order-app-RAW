@@ -7,10 +7,14 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import com.example.data.AppDatabase
 import com.example.data.OrderRepository
+import com.example.data.Order
 import com.example.ui.DashboardScreen
 import com.example.ui.OrderViewModel
 import com.example.ui.OrderViewModelFactory
 import com.example.ui.theme.MyApplicationTheme
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {

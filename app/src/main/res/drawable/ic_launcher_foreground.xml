@@ -1,8 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item
-        android:width="72dp"
-        android:height="72dp"
-        android:drawable="@drawable/suhas_jewel_logo_1779636257842"
-        android:gravity="center" />
-</layer-list>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Outer circular accent -->
+    <path
+        android:fillColor="#3A3025"
+        android:pathData="M54,54m-33,0a33,33 0,1 1,66 0a33,33 0,1 1,-66 0" />
+        
+    <!-- Golden elegant ring frame -->
+    <path
+        android:fillColor="#C5A059"
+        android:pathData="M54,23 C36.88,23 23,36.88 23,54 C23,71.12 36.88,85 54,85 C71.12,85 85,71.12 85,54 C85,36.88 71.12,23 54,23 Z M54,27 C68.91,27 81,39.09 81,54 C81,68.91 68.91,81 54,81 C39.09,81 27,68.91 27,54 C27,39.09 39.09,27 54,27 Z" />
+
+    <!-- Highly polished golden/diamond core facets -->
+    <!-- Center top -->
+    <path
+        android:fillColor="#EADAA2"
+        android:pathData="M45,43 L63,43 L54,49 Z" />
+    <!-- Left top -->
+    <path
+        android:fillColor="#C5A059"
+        android:pathData="M45,43 L54,49 L39,49 Z" />
+    <!-- Right top -->
+    <path
+        android:fillColor="#A88344"
+        android:pathData="M63,43 L69,49 L54,49 Z" />
+    <!-- Bottom center left -->
+    <path
+        android:fillColor="#D8C287"
+        android:pathData="M39,49 L54,49 L54,71 Z" />
+    <!-- Bottom center right -->
+    <path
+        android:fillColor="#A3854E"
+        android:pathData="M54,49 L69,49 L54,71 Z" />
+</vector>

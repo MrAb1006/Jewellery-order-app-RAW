@@ -4,6 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.data.Order
+import com.example.data.DeletedOrder
+import com.example.data.toDeletedOrder
+import com.example.data.toOrder
 import com.example.data.OrderRepository
 import com.example.data.getItems
 import kotlinx.coroutines.flow.*
@@ -13,15 +16,15 @@ import java.util.Calendar
 class OrderViewModel(private val repository: OrderRepository) : ViewModel() {
 
     init {
+        // App starts fresh for real-world launch; no automatic seeding.
         viewModelScope.launch {
             try {
-                repository.allOrders.first().let { currentOrders ->
-                    if (currentOrders.isEmpty()) {
-                        seedInitialData()
-                    }
-                }
+                // Retention window layout of 60 days
+                val sixtyDaysMs = 60L * 24L * 60L * 60L * 1000L
+                val cutoffTime = System.currentTimeMillis() - sixtyDaysMs
+                repository.deleteOldDeleted(cutoffTime)
             } catch (e: Exception) {
-                android.util.Log.e("OrderViewModel", "Failed to retrieve or seed initial database data", e)
+                android.util.Log.e("OrderViewModel", "Failed to clean old activity log entries on launch", e)
             }
         }
     }
@@ -145,13 +148,64 @@ class OrderViewModel(private val repository: OrderRepository) : ViewModel() {
 
     fun deleteOrder(order: Order) {
         viewModelScope.launch {
+            try {
+                repository.insertDeleted(order.toDeletedOrder())
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
             repository.delete(order)
         }
     }
 
     fun deleteOrderById(id: Int) {
         viewModelScope.launch {
+            try {
+                repository.allOrders.first().find { it.id == id }?.let { order ->
+                    repository.insertDeleted(order.toDeletedOrder())
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
             repository.deleteById(id)
+        }
+    }
+
+    // Retained Activity Log of Deleted Orders
+    val deletedOrders: StateFlow<List<DeletedOrder>> = repository.allDeletedOrders
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    fun restoreDeletedOrder(deletedOrder: DeletedOrder) {
+        viewModelScope.launch {
+            try {
+                repository.insert(deletedOrder.toOrder())
+                repository.deleteDeletedById(deletedOrder.id)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun permanentlyDeleteDeletedOrder(deletedOrderId: Int) {
+        viewModelScope.launch {
+            try {
+                repository.deleteDeletedById(deletedOrderId)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun clearAllDeletedOrders() {
+        viewModelScope.launch {
+            try {
+                repository.deleteAllDeleted()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 
@@ -161,88 +215,6 @@ class OrderViewModel(private val repository: OrderRepository) : ViewModel() {
                 repository.update(order.copy(status = newStatus))
             }
         }
-    }
-
-    private suspend fun seedInitialData() {
-        val calendar = Calendar.getInstance()
-        val now = calendar.timeInMillis
-
-        val order1 = Order(
-            customerName = "Samantha Reed",
-            customerPhone = "+1 555-8932",
-            jewelleryType = "Gold Bridal Necklace",
-            metalType = "Gold",
-            purity = "91.6",
-            approxWeight = 42.5,
-            agreedRate = 72.0,
-            makingCharges = 12.0, // 12% making charges
-            otherCharges = 120.0,
-            advancePaid = 1500.0,
-            totalAmount = (42.5 * 72.0 * (91.6 / 100.0)) * (1 + 12.0 / 100.0) + 120.0, // 3259.32
-            orderDate = now - (3 * 24 * 3600 * 1000L), // 3 days ago
-            expectedDeliveryDate = now + (10 * 24 * 3600 * 1000L), // 10 days from now
-            notes = "Engagement necklace. Traditional paisley design with central ruby stone. Smooth high polish backing.",
-            status = "In Progress"
-        )
-
-        val order2 = Order(
-            customerName = "Michael Chen",
-            customerPhone = "+1 555-0149",
-            jewelleryType = "Diamond Wedding Ring",
-            metalType = "Platinum",
-            purity = "95.0",
-            approxWeight = 6.2,
-            agreedRate = 95.0,
-            makingCharges = 15.0, // 15% making charges
-            otherCharges = 850.0, // Solitaire diamond
-            advancePaid = 500.0,
-            totalAmount = (6.2 * 95.0 * (95.0 / 100.0)) * (1 + 15.0 / 100.0) + 850.0, // 1493.48
-            orderDate = now - (1 * 24 * 3600 * 1000L), // 1 day ago
-            expectedDeliveryDate = now + (5 * 24 * 3600 * 1000L), // 5 days from now
-            notes = "Prong setting for central solitaire diamond 0.5ct. Inscribe inside band: 'M & S - Eternal'. Ring size: 6.5.",
-            status = "Pending"
-        )
-
-        val order3 = Order(
-            customerName = "Sophia Martinez",
-            customerPhone = "+1 555-4421",
-            jewelleryType = "Teardrop Emerald Earrings",
-            metalType = "Rose Gold",
-            purity = "75.0",
-            approxWeight = 12.8,
-            agreedRate = 60.0,
-            makingCharges = 10.0, // 10% making charges
-            otherCharges = 500.0, // Genuine Brazilian emeralds
-            advancePaid = 1000.0,
-            totalAmount = (12.8 * 60.0 * (75.0 / 100.0)) * (1 + 10.0 / 100.0) + 500.0, // 1133.6
-            orderDate = now - (5 * 24 * 3600 * 1000L), // 5 days ago
-            expectedDeliveryDate = now + (1 * 24 * 3600 * 1000L), // tomorrow (1 day from now, showing due soon/ready)
-            notes = "Matched pair. Hanging teardrop emeralds with micro pave diamonds surround. Comfort screw backing.",
-            status = "Completed"
-        )
-
-        val order4 = Order(
-            customerName = "Robert Taylor",
-            customerPhone = "+1 555-9012",
-            jewelleryType = "Heavy Gold Kada",
-            metalType = "Gold",
-            purity = "100.0",
-            approxWeight = 55.0,
-            agreedRate = 75.0,
-            makingCharges = 8.0, // 8% making charges
-            otherCharges = 0.0,
-            advancePaid = 2000.0,
-            totalAmount = (55.0 * 75.0 * (100.0 / 100.0)) * (1 + 8.0 / 100.0), // 4455.0
-            orderDate = now - (14 * 24 * 3600 * 1000L), // 14 days ago
-            expectedDeliveryDate = now - (2 * 24 * 3600 * 1000L), // delivered 2 days ago
-            notes = "Solid gold custom hand carved floral motif. Internal engraving ID '999 AU'. Weight exactly 55.0 grams.",
-            status = "Delivered"
-        )
-
-        repository.insert(order1)
-        repository.insert(order2)
-        repository.insert(order3)
-        repository.insert(order4)
     }
 }
 

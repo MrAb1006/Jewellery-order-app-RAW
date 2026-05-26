@@ -27,4 +27,22 @@ interface OrderDao {
 
     @Query("DELETE FROM orders WHERE id = :id")
     suspend fun deleteOrderById(id: Int)
+
+    @Query("DELETE FROM orders")
+    suspend fun deleteAllOrders()
+
+    @Query("SELECT * FROM deleted_orders ORDER BY deletedAt DESC")
+    fun getAllDeletedOrders(): Flow<List<DeletedOrder>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDeletedOrder(deletedOrder: DeletedOrder): Long
+
+    @Query("DELETE FROM deleted_orders WHERE id = :id")
+    suspend fun deleteDeletedOrderById(id: Int)
+
+    @Query("DELETE FROM deleted_orders WHERE deletedAt < :cutoffTime")
+    suspend fun deleteOldDeletedOrders(cutoffTime: Long)
+
+    @Query("DELETE FROM deleted_orders")
+    suspend fun deleteAllDeletedOrders()
 }

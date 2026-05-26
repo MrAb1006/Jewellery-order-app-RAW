@@ -50,12 +50,13 @@ data class OldOrderItem(
 )
 
 fun Order.getOldItems(): List<OldOrderItem> {
-    if (oldItemsJson.isNullOrBlank()) {
+    val json = this.oldItemsJson ?: ""
+    if (json.isBlank()) {
         return emptyList()
     }
     val list = mutableListOf<OldOrderItem>()
     try {
-        val array = JSONArray(oldItemsJson)
+        val array = JSONArray(json)
         for (i in 0 until array.length()) {
             val obj = array.getJSONObject(i)
             list.add(
@@ -92,24 +93,25 @@ fun serializeOldItems(items: List<OldOrderItem>): String {
 }
 
 fun Order.getItems(): List<OrderItem> {
-    if (itemsJson.isNullOrBlank()) {
+    val json = this.itemsJson ?: ""
+    if (json.isBlank()) {
         return listOf(
             OrderItem(
                 id = "primary",
-                jewelleryType = this.jewelleryType,
-                metalType = this.metalType,
-                purity = this.purity,
-                approxWeight = this.approxWeight,
-                agreedRate = this.agreedRate,
-                makingCharges = this.makingCharges,
-                otherCharges = this.otherCharges,
-                status = this.status
+                jewelleryType = this.jewelleryType ?: "",
+                metalType = this.metalType ?: "Gold",
+                purity = this.purity ?: "91.6",
+                approxWeight = this.approxWeight ?: 0.0,
+                agreedRate = this.agreedRate ?: 0.0,
+                makingCharges = this.makingCharges ?: 0.0,
+                otherCharges = this.otherCharges ?: 0.0,
+                status = this.status ?: "Pending"
             )
         )
     }
     val list = mutableListOf<OrderItem>()
     try {
-        val array = JSONArray(itemsJson)
+        val array = JSONArray(json)
         for (i in 0 until array.length()) {
             val obj = array.getJSONObject(i)
             list.add(
@@ -150,4 +152,68 @@ fun serializeItems(items: List<OrderItem>): String {
     }
     return array.toString()
 }
+
+@Entity(tableName = "deleted_orders")
+data class DeletedOrder(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val customerName: String,
+    val customerPhone: String,
+    val jewelleryType: String,
+    val metalType: String,
+    val purity: String,
+    val approxWeight: Double,
+    val agreedRate: Double,
+    val makingCharges: Double,
+    val otherCharges: Double,
+    val advancePaid: Double,
+    val totalAmount: Double,
+    val orderDate: Long,
+    val expectedDeliveryDate: Long,
+    val notes: String = "",
+    val status: String,
+    val itemsJson: String = "",
+    val oldItemsJson: String = "",
+    val deletedAt: Long = System.currentTimeMillis()
+)
+
+fun Order.toDeletedOrder(): DeletedOrder = DeletedOrder(
+    customerName = this.customerName,
+    customerPhone = this.customerPhone,
+    jewelleryType = this.jewelleryType,
+    metalType = this.metalType,
+    purity = this.purity,
+    approxWeight = this.approxWeight,
+    agreedRate = this.agreedRate,
+    makingCharges = this.makingCharges,
+    otherCharges = this.otherCharges,
+    advancePaid = this.advancePaid,
+    totalAmount = this.totalAmount,
+    orderDate = this.orderDate,
+    expectedDeliveryDate = this.expectedDeliveryDate,
+    notes = this.notes,
+    status = this.status,
+    itemsJson = this.itemsJson,
+    oldItemsJson = this.oldItemsJson,
+    deletedAt = System.currentTimeMillis()
+)
+
+fun DeletedOrder.toOrder(): Order = Order(
+    customerName = this.customerName,
+    customerPhone = this.customerPhone,
+    jewelleryType = this.jewelleryType,
+    metalType = this.metalType,
+    purity = this.purity,
+    approxWeight = this.approxWeight,
+    agreedRate = this.agreedRate,
+    makingCharges = this.makingCharges,
+    otherCharges = this.otherCharges,
+    advancePaid = this.advancePaid,
+    totalAmount = this.totalAmount,
+    orderDate = this.orderDate,
+    expectedDeliveryDate = this.expectedDeliveryDate,
+    notes = this.notes,
+    status = this.status,
+    itemsJson = this.itemsJson,
+    oldItemsJson = this.oldItemsJson
+)
 

@@ -14,4 +14,16 @@ class OrderRepository(private val orderDao: OrderDao) {
     suspend fun delete(order: Order) = orderDao.deleteOrder(order)
 
     suspend fun deleteById(id: Int) = orderDao.deleteOrderById(id)
+
+    suspend fun deleteAll() = orderDao.deleteAllOrders()
+
+    val allDeletedOrders: Flow<List<DeletedOrder>> = orderDao.getAllDeletedOrders()
+
+    suspend fun insertDeleted(deletedOrder: DeletedOrder): Long = orderDao.insertDeletedOrder(deletedOrder)
+
+    suspend fun deleteDeletedById(id: Int) = orderDao.deleteDeletedOrderById(id)
+
+    suspend fun deleteOldDeleted(cutoffTime: Long) = orderDao.deleteOldDeletedOrders(cutoffTime)
+
+    suspend fun deleteAllDeleted() = orderDao.deleteAllDeletedOrders()
 }

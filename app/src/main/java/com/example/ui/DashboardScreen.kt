@@ -73,6 +73,9 @@ fun DashboardScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var selectedOrderForDetail by remember { mutableStateOf<Order?>(null) }
     var selectedOrderForEdit by remember { mutableStateOf<Order?>(null) }
+    
+    val deletedOrders by viewModel.deletedOrders.collectAsStateWithLifecycle()
+    var showActivityDialog by remember { mutableStateOf(false) }
 
     // Launcher for creating a backup file (export)
     val exportLauncher = rememberLauncherForActivityResult(
@@ -238,6 +241,14 @@ fun DashboardScreen(
                             onDismissRequest = { showBackupMenu = false }
                         ) {
                             DropdownMenuItem(
+                                text = { Text("Activity Log") },
+                                leadingIcon = { Icon(Icons.Default.History, contentDescription = null, tint = Color(0xFFC5A059)) },
+                                onClick = {
+                                    showBackupMenu = false
+                                    showActivityDialog = true
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Backup Database") },
                                 leadingIcon = { Icon(Icons.Default.Upload, contentDescription = null, tint = Color(0xFFC5A059)) },
                                 onClick = {
@@ -273,13 +284,14 @@ fun DashboardScreen(
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { viewModel.setSearchQuery(it) },
-                        placeholder = { Text("Search name, number, item") },
+                        placeholder = { Text("Search name, number, item", style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp)) },
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Default.Search,
                                 contentDescription = "Search icon",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                         },
                         trailingIcon = {
@@ -289,7 +301,7 @@ fun DashboardScreen(
                                         imageVector = Icons.Default.Clear,
                                         contentDescription = "Clear search",
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(18.dp)
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 }
                             }
@@ -303,6 +315,7 @@ fun DashboardScreen(
                         ),
                         modifier = Modifier
                             .weight(1f)
+                            .height(44.dp)
                             .testTag("search_input"),
                         singleLine = true
                     )
@@ -518,6 +531,25 @@ fun DashboardScreen(
             }
         )
     }
+
+    if (showActivityDialog) {
+        ActivityLogDialog(
+            deletedOrders = deletedOrders,
+            onDismiss = { showActivityDialog = false },
+            onRestore = { item ->
+                viewModel.restoreDeletedOrder(item)
+                Toast.makeText(context, "Order restored to system!", Toast.LENGTH_SHORT).show()
+            },
+            onDeletePermanently = { id ->
+                viewModel.permanentlyDeleteDeletedOrder(id)
+                Toast.makeText(context, "Permanently purged from system memory.", Toast.LENGTH_SHORT).show()
+            },
+            onClearAll = {
+                viewModel.clearAllDeletedOrders()
+                Toast.makeText(context, "Activity Bin successfully purged.", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
 }
 
 // Stats metrics banner
@@ -583,7 +615,7 @@ fun MetricsPanel(metrics: OrderMetrics) {
 
             Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(
-                    imageVector = Icons.Default.MonetizationOn,
+                    imageVector = Icons.Default.CurrencyRupee,
                     contentDescription = "Pending balance collections",
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
@@ -1386,9 +1418,10 @@ fun BillingTicket(order: Order) {
                 Text(
                     text = if (balanceDue > 0) "BALANCE PAYABLE TO COLLECT" else "SETTLED / PAID FULL",
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Black),
-                    color = if (balanceDue > 0) Color(0xFF2C251C) else Color(0xFF137333)
+                    color = if (balanceDue > 0) Color(0xFF2C251C) else Color(0xFF137333),
+                    modifier = Modifier.weight(1f)
                 )
-                val dynamicPayableFontSize = if (balanceDue > 999999) 16.sp else 20.sp
+                val dynamicPayableFontSize = if (balanceDue > 99999) 15.sp else 18.sp
                 Text(
                     text = "₹${String.format(Locale.getDefault(), "%,.0f", balanceDue)}",
                     style = MaterialTheme.typography.titleLarge.copy(
@@ -1396,7 +1429,9 @@ fun BillingTicket(order: Order) {
                         fontWeight = FontWeight.Black,
                         fontFamily = FontFamily.Monospace,
                         color = if (balanceDue > 0) Color(0xFFC5A059) else Color(0xFF137333)
-                    )
+                    ),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                    modifier = Modifier.padding(start = 8.dp)
                 )
             }
         }
@@ -1826,19 +1861,37 @@ fun AddEditOrderDialog(
                                             modifier = Modifier.weight(1f)
                                         )
 
-                                        OutlinedTextField(
-                                            value = itemState.makingCharges,
-                                            onValueChange = { value ->
-                                                updateItemSafe(index) { it.copy(makingCharges = value) }
-                                            },
-                                            label = { Text("Making Charges %") },
-                                            placeholder = { Text("12") },
-                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                            shape = RoundedCornerShape(12.dp),
-                                            singleLine = true,
-                                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
+                                        Column(
                                             modifier = Modifier.weight(1f)
-                                        )
+                                        ) {
+                                            OutlinedTextField(
+                                                value = itemState.makingCharges,
+                                                onValueChange = { value ->
+                                                    updateItemSafe(index) { it.copy(makingCharges = value) }
+                                                },
+                                                label = { Text("Making Charges %") },
+                                                placeholder = { Text("12") },
+                                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                                shape = RoundedCornerShape(12.dp),
+                                                singleLine = true,
+                                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                            if (itemState.metalType.equals("Gold", ignoreCase = true)) {
+                                                val r = itemState.agreedRate.toDoubleOrNull() ?: 0.0
+                                                val m = itemState.makingCharges.toDoubleOrNull() ?: 0.0
+                                                val rs = r * (m / 100.0)
+                                                if (rs > 0.0) {
+                                                     Spacer(modifier = Modifier.height(2.dp))
+                                                     Text(
+                                                         text = "≈ ₹${String.format(Locale.getDefault(), "%,.2f", rs)} / g",
+                                                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                                                         modifier = Modifier.padding(start = 4.dp)
+                                                     )
+                                                }
+                                            }
+                                        }
                                     }
 
                                     // Fourth Row: Other Charges & Status
@@ -2392,16 +2445,28 @@ fun AddEditOrderDialog(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Net Balance Due:", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                                    Text(
+                                        text = "Net Balance Due:",
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    val balanceTextSize = when {
+                                        netBalance >= 100000.0 -> 14.sp
+                                        netBalance >= 10000.0 -> 16.sp
+                                        else -> 18.sp
+                                    }
                                     Text(
                                         text = "₹${String.format(Locale.getDefault(), "%,.2f", netBalance)}",
-                                        style = if (netBalance >= 100000.0) {
-                                            MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold)
-                                        } else {
-                                            MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold)
-                                        },
+                                        style = MaterialTheme.typography.titleLarge.copy(
+                                            fontSize = balanceTextSize,
+                                            fontWeight = FontWeight.ExtraBold
+                                        ),
                                         color = if (netBalance > 0) Color(0xFFBA1A1A) else Color(0xFF388E3C),
-                                        modifier = Modifier.testTag("net_balance_text")
+                                        modifier = Modifier
+                                            .padding(start = 8.dp)
+                                            .testTag("net_balance_text"),
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.End
                                     )
                                 }
                             }
@@ -2600,6 +2665,7 @@ fun serializeOrders(orders: List<Order>): String {
             put("notes", order.notes)
             put("status", order.status)
             put("itemsJson", order.itemsJson)
+            put("oldItemsJson", order.oldItemsJson)
         }
         jsonArray.put(jsonObject)
     }
@@ -2629,7 +2695,8 @@ fun deserializeOrders(jsonStr: String): List<Order> {
                 expectedDeliveryDate = jsonObject.optLong("expectedDeliveryDate", System.currentTimeMillis()),
                 notes = jsonObject.optString("notes", ""),
                 status = jsonObject.optString("status", "Pending"),
-                itemsJson = jsonObject.optString("itemsJson", "")
+                itemsJson = jsonObject.optString("itemsJson", ""),
+                oldItemsJson = jsonObject.optString("oldItemsJson", "")
             )
             list.add(order)
         }
@@ -2694,6 +2761,38 @@ fun TradedInJewelleryCard(order: Order) {
                     Text(
                         text = "${String.format(Locale.getDefault(), "%.3f", fineWeight)} g",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = Color(0xFF137333))
+                    )
+                }
+                val fallbackRate = order.getItems().firstOrNull { it.metalType.equals(item.metalType, ignoreCase = true) }?.agreedRate ?: 0.0
+                val rateUsed = if (item.agreedRate > 0.0) item.agreedRate else fallbackRate
+                val itemValuation = fineWeight * rateUsed
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "  · Exchange Rate Used:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF435C52)
+                    )
+                    Text(
+                        text = "₹${String.format(Locale.getDefault(), "%,.0f", rateUsed)} / g ${if (item.agreedRate <= 0.0) "(Auto)" else ""}",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = Color(0xFF1C2C25)
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "  · Valuation: (Fine wt × Rate):",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF435C52)
+                    )
+                    Text(
+                        text = "₹${String.format(Locale.getDefault(), "%,.2f", itemValuation)}",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = Color(0xFF117243))
                     )
                 }
                 if (index < oldItems.size - 1) {
@@ -2796,3 +2895,227 @@ fun MetalBalancingSheet(order: Order) {
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ActivityLogDialog(
+    deletedOrders: List<com.example.data.DeletedOrder>,
+    onDismiss: () -> Unit,
+    onRestore: (com.example.data.DeletedOrder) -> Unit,
+    onDeletePermanently: (Int) -> Unit,
+    onClearAll: () -> Unit
+) {
+    var showConfirmClearAll by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+            .wrapContentHeight(),
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", color = Color(0xFFC5A059))
+            }
+        },
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.History,
+                        contentDescription = "Activity Log",
+                        tint = Color(0xFFC5A059),
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Activity Log",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+                if (deletedOrders.isNotEmpty()) {
+                    IconButton(onClick = { showConfirmClearAll = true }) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteSweep,
+                            contentDescription = "Clear all activity log",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+            ) {
+                Text(
+                    text = "Deleted orders are retained here for up to 60 days of retention before being permanently removed.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+
+                if (deletedOrders.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .padding(vertical = 32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.Inbox,
+                                contentDescription = "Empty Bin",
+                                tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Bin is completely empty",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(deletedOrders, key = { it.id }) { item ->
+                            val sdf = remember { SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()) }
+                            val deletedDateStr = sdf.format(Date(item.deletedAt))
+                            val metalSpecs = "${item.approxWeight}g ${item.metalType} (${item.purity})"
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                ),
+                                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = item.customerName.ifBlank { "Unnamed Customer" },
+                                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = "${item.jewelleryType} · $metalSpecs",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Text(
+                                            text = "₹${String.format(Locale.getDefault(), "%,.0f", item.totalAmount)}",
+                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                fontWeight = FontWeight.Black,
+                                                fontFamily = FontFamily.Monospace
+                                            ),
+                                            color = Color(0xFFC5A059)
+                                        )
+                                    }
+                                    
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f))
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Deleted: $deletedDateStr",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                                        )
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            FilledTonalButton(
+                                                onClick = { onRestore(item) },
+                                                shape = RoundedCornerShape(8.dp),
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                                colors = ButtonDefaults.filledTonalButtonColors(
+                                                    containerColor = Color(0xFFE2F0D9),
+                                                    contentColor = Color(0xFF388E3C)
+                                                ),
+                                                modifier = Modifier.height(30.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Restore,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(12.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Restore", style = MaterialTheme.typography.labelMedium)
+                                            }
+                                            IconButton(
+                                                onClick = { onDeletePermanently(item.id) },
+                                                modifier = Modifier.size(30.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.DeleteForever,
+                                                    contentDescription = "Permanently Delete",
+                                                    tint = MaterialTheme.colorScheme.error,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    if (showConfirmClearAll) {
+        AlertDialog(
+            onDismissRequest = { showConfirmClearAll = false },
+            title = { Text("Purge Activity Bin?") },
+            text = { Text("Are you sure you want to permanently delete all items from history? This action is absolutely irreversible.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onClearAll()
+                        showConfirmClearAll = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Purge All")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmClearAll = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+

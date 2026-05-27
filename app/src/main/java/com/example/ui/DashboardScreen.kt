@@ -3,6 +3,12 @@ package com.example.ui
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import java.io.File
+import java.io.FileOutputStream
+import android.graphics.pdf.PdfDocument
+import android.graphics.Paint
+import android.graphics.Canvas
+import android.graphics.Color as AndroidColor
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -11,6 +17,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -170,7 +178,7 @@ fun DashboardScreen(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "SUHAS JEWELLERS · SECURE ORDER ENGINE",
+                        text = "SUHAS JEWELLERS · v. 0.2.4",
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.5.sp,
@@ -909,6 +917,7 @@ fun OrderDetailDialog(
 ) {
     val context = LocalContext.current
     var isConfirmDeleteState by rememberSaveable { mutableStateOf(false) }
+    var showShareDrawerState by rememberSaveable { mutableStateOf(false) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -922,45 +931,49 @@ fun OrderDetailDialog(
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color(0xFFFAF6F0).copy(alpha = 0.5f), Color.Transparent)
-                        )
-                    )
-            ) {
-                // Details Header
-                Row(
+            Box(modifier = Modifier.fillMaxSize()) {
+                Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = onDismiss) {
-                            Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close detailed view")
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Order Details",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color(0xFFFAF6F0).copy(alpha = 0.5f), Color.Transparent)
+                            )
                         )
-                    }
+                ) {
+                    // Details Header
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = onDismiss) {
+                                Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close detailed view")
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Order Details",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
 
-                    Row {
-                        IconButton(onClick = onEdit) {
-                            Icon(imageVector = Icons.Default.Edit, contentDescription = "Edit details", tint = Color(0xFFC5A059))
-                        }
-                        IconButton(onClick = { isConfirmDeleteState = true }) {
-                            Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete record", tint = MaterialTheme.colorScheme.error)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { showShareDrawerState = true }) {
+                                Icon(imageVector = Icons.Default.Share, contentDescription = "Share Kacchi Pawti PDF", tint = Color(0xFFC5A059))
+                            }
+                            IconButton(onClick = onEdit) {
+                                Icon(imageVector = Icons.Default.Edit, contentDescription = "Edit details", tint = Color(0xFFC5A059))
+                            }
+                            IconButton(onClick = { isConfirmDeleteState = true }) {
+                                Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete record", tint = MaterialTheme.colorScheme.error)
+                            }
                         }
                     }
-                }
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
 
@@ -1142,6 +1155,35 @@ fun OrderDetailDialog(
                     }
                 }
             }
+
+            // Smooth share drawer overlay
+                if (showShareDrawerState) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.4f))
+                            .clickable { showShareDrawerState = false }
+                    )
+                }
+
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showShareDrawerState,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    enter = androidx.compose.animation.slideInVertically(
+                        initialOffsetY = { it },
+                        animationSpec = androidx.compose.animation.core.tween(durationMillis = 300)
+                    ) + androidx.compose.animation.fadeIn(),
+                    exit = androidx.compose.animation.slideOutVertically(
+                        targetOffsetY = { it },
+                        animationSpec = androidx.compose.animation.core.tween(durationMillis = 250)
+                    ) + androidx.compose.animation.fadeOut()
+                ) {
+                    ShareOptionsDrawer(
+                        order = order,
+                        onDismiss = { showShareDrawerState = false }
+                    )
+                }
+            }
         }
     }
 }
@@ -1259,7 +1301,14 @@ fun BillingTicket(order: Order) {
         val purityPercent = (item.purity.toDoubleOrNull() ?: 100.0) / 100.0
         val metalValValue = item.approxWeight * item.agreedRate * purityPercent
         val isSilver = item.metalType.equals("Silver", ignoreCase = true)
-        if (isSilver) item.makingCharges else (metalValValue * (item.makingCharges / 100.0))
+        val isGold = item.metalType.equals("Gold", ignoreCase = true)
+        if (isSilver) {
+            item.makingCharges
+        } else if (isGold) {
+            item.approxWeight * item.agreedRate * (item.makingCharges / 100.0)
+        } else {
+            metalValValue * (item.makingCharges / 100.0)
+        }
     }
 
     val newGoldFineValug = items.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
@@ -1293,7 +1342,14 @@ fun BillingTicket(order: Order) {
                 val purityPercent = (item.purity.toDoubleOrNull() ?: 100.0) / 100.0
                 val metalValValue = item.approxWeight * item.agreedRate * purityPercent
                 val isSilver = item.metalType.equals("Silver", ignoreCase = true)
-                val makingChargesAmount = if (isSilver) item.makingCharges else (metalValValue * (item.makingCharges / 100.0))
+                val isGold = item.metalType.equals("Gold", ignoreCase = true)
+                val makingChargesAmount = if (isSilver) {
+                    item.makingCharges
+                } else if (isGold) {
+                    item.approxWeight * item.agreedRate * (item.makingCharges / 100.0)
+                } else {
+                    metalValValue * (item.makingCharges / 100.0)
+                }
                 val itemTotal = metalValValue + makingChargesAmount + item.otherCharges
 
                 Text(
@@ -1379,7 +1435,14 @@ fun BillingTicket(order: Order) {
                 val purityPercent = (item.purity.toDoubleOrNull() ?: 100.0) / 100.0
                 val metalValValue = item.approxWeight * item.agreedRate * purityPercent
                 val isSilver = item.metalType.equals("Silver", ignoreCase = true)
-                val makingChargesAmount = if (isSilver) item.makingCharges else (metalValValue * (item.makingCharges / 100.0))
+                val isGold = item.metalType.equals("Gold", ignoreCase = true)
+                val makingChargesAmount = if (isSilver) {
+                    item.makingCharges
+                } else if (isGold) {
+                    item.approxWeight * item.agreedRate * (item.makingCharges / 100.0)
+                } else {
+                    metalValValue * (item.makingCharges / 100.0)
+                }
                 metalValValue + makingChargesAmount + item.otherCharges
             }
 
@@ -1495,6 +1558,504 @@ fun BillingTicket(order: Order) {
         }
     }
 }
+
+
+// --- KACCHI PAWTI PDF GENERATION & NATIVE SHARING FLOWS ---
+
+fun generateKacchiPawtiPdf(context: android.content.Context, order: Order): File? {
+    try {
+        val pdfDocument = android.graphics.pdf.PdfDocument()
+        val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(595, 842, 1).create()
+        val page = pdfDocument.startPage(pageInfo)
+        val canvas = page.canvas
+        val paint = android.graphics.Paint()
+        val titlePaint = android.graphics.Paint()
+        
+        // Background color
+        paint.color = android.graphics.Color.WHITE
+        canvas.drawRect(0f, 0f, 595f, 842f, paint)
+        
+        var y = 50f
+        
+        // Title: KACCHI PAWTI
+        titlePaint.isFakeBoldText = true
+        titlePaint.textSize = 24f
+        titlePaint.color = android.graphics.Color.DKGRAY
+        titlePaint.textAlign = android.graphics.Paint.Align.CENTER
+        canvas.drawText("KACCHI PAWTI", 297.5f, y, titlePaint)
+        
+        // Subtitle: Suhas Jewellers
+        y += 20f
+        val termPaint = android.graphics.Paint().apply {
+            textSize = 10f
+            color = android.graphics.Color.GRAY
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
+        canvas.drawText("SUHAS JEWELLERS · ESTIMATE REPORT", 297.5f, y, termPaint)
+        
+        // Draw decorative line
+        y += 12f
+        paint.color = android.graphics.Color.parseColor("#C5A059")
+        paint.strokeWidth = 2.5f
+        canvas.drawLine(40f, y, 555f, y, paint)
+        
+        // Metadata / Customer Info
+        y += 25f
+        paint.color = android.graphics.Color.BLACK
+        paint.textSize = 12f
+        paint.isFakeBoldText = true
+        paint.textAlign = android.graphics.Paint.Align.LEFT
+        canvas.drawText("CUSTOMER DETAILS:", 40f, y, paint)
+        
+        paint.isFakeBoldText = false
+        paint.textSize = 10f
+        y += 18f
+        canvas.drawText("Name: ${order.customerName}", 40f, y, paint)
+        canvas.drawText("Order ID: #${order.id}", 350f, y, paint)
+        
+        y += 16f
+        canvas.drawText("Contact: ${order.customerPhone}", 40f, y, paint)
+        val orderDateStr = java.text.SimpleDateFormat("dd-MM-yyyy", java.util.Locale.getDefault()).format(java.util.Date(order.orderDate))
+        canvas.drawText("Date: $orderDateStr", 350f, y, paint)
+        
+        y += 16f
+        canvas.drawText("Status: ${order.status}", 40f, y, paint)
+
+        // Draw section line
+        y += 15f
+        paint.color = android.graphics.Color.LTGRAY
+        paint.strokeWidth = 1f
+        canvas.drawLine(40f, y, 555f, y, paint)
+        
+        // Segment 1: New Gold/Silver Items
+        y += 25f
+        paint.color = android.graphics.Color.BLACK
+        paint.textSize = 12f
+        paint.isFakeBoldText = true
+        canvas.drawText("ORDERED ITEMS BREAKDOWN", 40f, y, paint)
+        
+        paint.textSize = 9.5f
+        y += 20f
+        
+        // Draw table headers
+        paint.isFakeBoldText = true
+        canvas.drawText("Item Details", 40f, y, paint)
+        canvas.drawText("Metal", 200f, y, paint)
+        canvas.drawText("Wt.(g)", 270f, y, paint)
+        canvas.drawText("Rate(₹)", 340f, y, paint)
+        canvas.drawText("Charges", 410f, y, paint)
+        canvas.drawText("Total(₹)", 480f, y, paint)
+        
+        paint.isFakeBoldText = false
+        val items = order.getItems()
+        for (item in items) {
+            y += 18f
+            if (y > 780f) break
+
+            canvas.drawText(item.jewelleryType.take(22), 40f, y, paint)
+            canvas.drawText(item.metalType, 200f, y, paint)
+            canvas.drawText("${item.approxWeight}g (${item.purity}%)", 270f, y, paint)
+            canvas.drawText("₹${String.format(java.util.Locale.getDefault(), "%,.0f", item.agreedRate)}", 340f, y, paint)
+            
+            val isSilver = item.metalType.equals("Silver", ignoreCase = true)
+            val isGold = item.metalType.equals("Gold", ignoreCase = true)
+            val chargesTxt = if (isSilver) "Flat ₹${item.makingCharges}" else "${item.makingCharges}%"
+            canvas.drawText(chargesTxt, 410f, y, paint)
+            
+            // Calculating item valuation
+            val purityPercent = (item.purity.toDoubleOrNull() ?: 100.0) / 100.0
+            val rawCost = item.approxWeight * item.agreedRate * purityPercent
+            val makingAmount = if (isSilver) {
+                item.makingCharges
+            } else if (isGold) {
+                item.approxWeight * item.agreedRate * (item.makingCharges / 100.0)
+            } else {
+                rawCost * (item.makingCharges / 100.0)
+            }
+            val totalVal = rawCost + makingAmount + item.otherCharges
+            
+            canvas.drawText("₹${String.format(java.util.Locale.getDefault(), "%,.0f", totalVal)}", 480f, y, paint)
+        }
+        
+        // Draw line
+        y += 12f
+        paint.color = android.graphics.Color.LTGRAY
+        canvas.drawLine(40f, y, 555f, y, paint)
+        
+        // Segment 2: Trade-in items (Old Items)
+        val oldItems = order.getOldItems()
+        if (oldItems.isNotEmpty()) {
+            y += 20f
+            paint.isFakeBoldText = true
+            paint.textSize = 12f
+            paint.color = android.graphics.Color.BLACK
+            canvas.drawText("EXCHANGED OLD METAL", 40f, y, paint)
+            
+            y += 18f
+            paint.textSize = 9.5f
+            canvas.drawText("Old Item Description", 40f, y, paint)
+            canvas.drawText("Metal", 200f, y, paint)
+            canvas.drawText("Wt.(g)", 270f, y, paint)
+            canvas.drawText("Purity", 340f, y, paint)
+            canvas.drawText("Credit Value", 480f, y, paint)
+            
+            paint.isFakeBoldText = false
+            for (oldItem in oldItems) {
+                y += 18f
+                if (y > 780f) break
+                canvas.drawText(oldItem.itemName.take(22), 40f, y, paint)
+                canvas.drawText(oldItem.metalType, 200f, y, paint)
+                canvas.drawText("${oldItem.approxWeight}g", 270f, y, paint)
+                canvas.drawText("${oldItem.purity}%", 340f, y, paint)
+                
+                val creditVal = calculateOldItemValuation(oldItem, items)
+                canvas.drawText("₹${String.format(java.util.Locale.getDefault(), "%,.0f", creditVal)}", 480f, y, paint)
+            }
+            
+            y += 12f
+            paint.color = android.graphics.Color.LTGRAY
+            canvas.drawLine(40f, y, 555f, y, paint)
+        }
+        
+        // Fine metal summaries
+        y += 20f
+        paint.textSize = 11f
+        paint.color = android.graphics.Color.BLACK
+        paint.isFakeBoldText = true
+        canvas.drawText("SUMMARY DETAILS", 40f, y, paint)
+        paint.isFakeBoldText = false
+        paint.textSize = 9.5f
+        
+        val totalMakingCharges = items.sumOf { item ->
+            val purityPercent = (item.purity.toDoubleOrNull() ?: 100.0) / 100.0
+            val metalValValue = item.approxWeight * item.agreedRate * purityPercent
+            val isSilver = item.metalType.equals("Silver", ignoreCase = true)
+            val isGold = item.metalType.equals("Gold", ignoreCase = true)
+            if (isSilver) {
+                item.makingCharges
+            } else if (isGold) {
+                item.approxWeight * item.agreedRate * (item.makingCharges / 100.0)
+            } else {
+                metalValValue * (item.makingCharges / 100.0)
+            }
+        }
+        
+        val newGoldFineValug = items.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
+            val purityPercent = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
+            it.approxWeight * purityPercent * it.agreedRate
+        }
+        val oldGoldFineValug = oldItems.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
+            calculateOldItemValuation(it, items)
+        }
+        val netGoldFineValug = newGoldFineValug - oldGoldFineValug
+
+        val newSilverFineValug = items.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
+            val purityPercent = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
+            it.approxWeight * purityPercent * it.agreedRate
+        }
+        val oldSilverFineValug = oldItems.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
+            calculateOldItemValuation(it, items)
+        }
+        val netSilverFineValug = newSilverFineValug - oldSilverFineValug
+        val netRequiredMetalFineValuation = netGoldFineValug + netSilverFineValug
+
+        y += 18f
+        canvas.drawText("Total Making Charges: ₹${String.format(java.util.Locale.getDefault(), "%,.0f", totalMakingCharges)}", 40f, y, paint)
+        canvas.drawText("Net Metal Fine Valuation: ₹${String.format(java.util.Locale.getDefault(), "%,.0f", netRequiredMetalFineValuation)}", 300f, y, paint)
+        
+        y += 18f
+        paint.isFakeBoldText = true
+        paint.textSize = 10.5f
+        canvas.drawText("TOTAL ESTIMATED VALUE: ₹${String.format(java.util.Locale.getDefault(), "%,.0f", order.totalAmount)}", 40f, y, paint)
+        canvas.drawText("ADVANCE DEPOSIT PAID: ₹${String.format(java.util.Locale.getDefault(), "%,.0f", order.advancePaid)}", 300f, y, paint)
+        
+        y += 18f
+        val balanceDue = order.totalAmount - order.advancePaid
+        canvas.drawText("BALANCE PAYABLE TO COLLECT: ₹${String.format(java.util.Locale.getDefault(), "%,.0f", balanceDue)}", 40f, y, paint)
+        
+        // Footer signature
+        y += 45f
+        paint.strokeWidth = 1f
+        paint.color = android.graphics.Color.GRAY
+        canvas.drawLine(40f, y, 180f, y, paint)
+        canvas.drawLine(370f, y, 510f, y, paint)
+        y += 14f
+        paint.textSize = 8.5f
+        paint.isFakeBoldText = false
+        canvas.drawText("Customer Signature", 55f, y, paint)
+        canvas.drawText("Authorized Representative", 375f, y, paint)
+        
+        y += 35f
+        paint.color = android.graphics.Color.DKGRAY
+        paint.textAlign = android.graphics.Paint.Align.CENTER
+        canvas.drawText("Thank you for choosing Suhas Jewellers. Estimates valid for the day of query.", 297.5f, y, paint)
+
+        pdfDocument.finishPage(page)
+        
+        val pdfFile = File(context.cacheDir, "Kacchi_Pawti_Order_${order.id}.pdf")
+        val outputStream = FileOutputStream(pdfFile)
+        pdfDocument.writeTo(outputStream)
+        outputStream.flush()
+        outputStream.close()
+        pdfDocument.close()
+        return pdfFile
+    } catch (e: Exception) {
+        e.printStackTrace()
+        return null
+    }
+}
+
+fun printKacchiPawtiPdf(context: android.content.Context, file: File) {
+    try {
+        val printManager = context.getSystemService(android.content.Context.PRINT_SERVICE) as? android.print.PrintManager
+        val jobName = "Kacchi Pawti Order Document"
+        val printAdapter = object : android.print.PrintDocumentAdapter() {
+            override fun onLayout(
+                oldAttributes: android.print.PrintAttributes?,
+                newAttributes: android.print.PrintAttributes?,
+                cancellationSignal: android.os.CancellationSignal?,
+                callback: LayoutResultCallback?,
+                extras: android.os.Bundle?
+            ) {
+                if (cancellationSignal?.isCanceled == true) {
+                    callback?.onLayoutCancelled()
+                    return
+                }
+                val info = android.print.PrintDocumentInfo.Builder(jobName)
+                    .setContentType(android.print.PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
+                    .setPageCount(1)
+                    .build()
+                callback?.onLayoutFinished(info, true)
+            }
+
+            override fun onWrite(
+                pages: Array<out android.print.PageRange>?,
+                destination: android.os.ParcelFileDescriptor?,
+                cancellationSignal: android.os.CancellationSignal?,
+                callback: WriteResultCallback?
+            ) {
+                try {
+                    val input = java.io.FileInputStream(file)
+                    val output = java.io.FileOutputStream(destination?.fileDescriptor)
+                    val buf = ByteArray(1024)
+                    var bytesRead: Int
+                    while (input.read(buf).also { bytesRead = it } >= 0) {
+                        output.write(buf, 0, bytesRead)
+                    }
+                    callback?.onWriteFinished(arrayOf(android.print.PageRange.ALL_PAGES))
+                    input.close()
+                    output.close()
+                } catch (e: Exception) {
+                    callback?.onWriteFailed(e.message)
+                }
+            }
+        }
+        printManager?.print(jobName, printAdapter, null)
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+}
+
+fun shareKacchiPawtiPdf(context: android.content.Context, file: File) {
+    try {
+        val authority = "com.example.fileprovider"
+        val contentUri = androidx.core.content.FileProvider.getUriForFile(context, authority, file)
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "application/pdf"
+            putExtra(Intent.EXTRA_STREAM, contentUri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(shareIntent, "Share Kacchi Pawti via"))
+    } catch (e: Exception) {
+        e.printStackTrace()
+        Toast.makeText(context, "Sharing failed: ${e.message}", Toast.LENGTH_SHORT).show()
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ShareOptionsDrawer(
+    order: Order,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var isGeneratingPdf by remember { mutableStateOf(false) }
+    var shareProgressMessage by remember { mutableStateOf("") }
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = false) {}, // prevent click-through
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 16.dp),
+        border = BorderStroke(width = 1.dp, color = Color(0xFFC5A059).copy(alpha = 0.25f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Drag handle
+            Box(
+                modifier = Modifier
+                    .width(40.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            Text(
+                text = "SHARE KACCHI PAWTI (ESTIMATE)",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFC5A059),
+                letterSpacing = 1.sp
+            )
+            
+            Text(
+                text = "Generate and share a premium digital receipt for Order #${order.id}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
+            )
+            
+            if (isGeneratingPdf) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    CircularProgressIndicator(color = Color(0xFFC5A059), modifier = Modifier.size(36.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = if (shareProgressMessage.isNotEmpty()) shareProgressMessage else "Generating PDF report...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF2C251C)
+                    )
+                }
+            } else {
+                // Large styled Grid of share icons
+                val options = listOf(
+                    ShareOption("WhatsApp", Icons.Default.Message, Color(0xFF25D366)),
+                    ShareOption("Gmail", Icons.Default.Email, Color(0xFFD44638)),
+                    ShareOption("Google Drive", Icons.Default.CloudUpload, Color(0xFF4285F4)),
+                    ShareOption("Bluetooth", Icons.Default.Bluetooth, Color(0xFF0082FC)),
+                    ShareOption("Print Pawti", Icons.Default.Print, Color(0xFFE65100)),
+                    ShareOption("Save to Files", Icons.Default.Save, Color(0xFF607D8B)),
+                    ShareOption("System Share", Icons.Default.Share, Color(0xFFC5A059))
+                )
+                
+                // Grid layout (columns) using FlowRow
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    maxItemsInEachRow = 4
+                ) {
+                    options.forEach { option ->
+                        Column(
+                            modifier = Modifier
+                                .width(80.dp)
+                                .clickable {
+                                    isGeneratingPdf = true
+                                    shareProgressMessage = "Generating 'Kacchi Pawti' PDF..."
+                                    
+                                    val pdfFile = generateKacchiPawtiPdf(context, order)
+                                    if (pdfFile != null && pdfFile.exists()) {
+                                        if (option.label == "Print Pawti") {
+                                            shareProgressMessage = "Opening print manager..."
+                                            printKacchiPawtiPdf(context, pdfFile)
+                                            isGeneratingPdf = false
+                                            onDismiss()
+                                        } else if (option.label == "Save to Files") {
+                                            shareProgressMessage = "Saving report..."
+                                            Toast.makeText(context, "Saved Kacchi Pawti PDF as: ${pdfFile.name}", Toast.LENGTH_LONG).show()
+                                            
+                                            try {
+                                                val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                    val authority = "com.example.fileprovider"
+                                                    val uri = androidx.core.content.FileProvider.getUriForFile(context, authority, pdfFile)
+                                                    setDataAndType(uri, "application/pdf")
+                                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                }
+                                                context.startActivity(intent)
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "PDF viewer initialized cleanly!", Toast.LENGTH_SHORT).show()
+                                            }
+                                            isGeneratingPdf = false
+                                            onDismiss()
+                                        } else {
+                                            shareProgressMessage = "Sending to ${option.label}..."
+                                            shareKacchiPawtiPdf(context, pdfFile)
+                                            isGeneratingPdf = false
+                                            onDismiss()
+                                        }
+                                    } else {
+                                        Toast.makeText(context, "Failed to generate report PDF", Toast.LENGTH_SHORT).show()
+                                        isGeneratingPdf = false
+                                    }
+                                }
+                                .padding(vertical = 10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(54.dp)
+                                    .clip(CircleShape)
+                                    .background(option.backgroundColor.copy(alpha = 0.12f))
+                                    .border(1.dp, option.backgroundColor.copy(alpha = 0.3f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = option.icon,
+                                    contentDescription = option.label,
+                                    tint = option.backgroundColor,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            
+                            Spacer(modifier = Modifier.height(6.dp))
+                            
+                            Text(
+                                text = option.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "Close Sharing",
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+        }
+    }
+}
+
+data class ShareOption(
+    val label: String,
+    val icon: ImageVector,
+    val backgroundColor: Color
+)
 
 // Editable item representation for live edits in text fields
 data class EditableItem(
@@ -1653,7 +2214,14 @@ fun calculateItemTotal(item: EditableItem): Double {
 
     val rawCost = wt * rate * purityPercent
     val isSilver = item.metalType.equals("Silver", ignoreCase = true)
-    val makVal = if (isSilver) mak else (rawCost * (mak / 100.0))
+    val isGold = item.metalType.equals("Gold", ignoreCase = true)
+    val makVal = if (isSilver) {
+        mak
+    } else if (isGold) {
+        wt * rate * (mak / 100.0)
+    } else {
+        rawCost * (mak / 100.0)
+    }
     return rawCost + makVal + other
 }
 
@@ -1667,7 +2235,14 @@ fun calculateModelItemTotal(item: OrderItem): Double {
 
     val rawCost = wt * rate * purityPercent
     val isSilver = item.metalType.equals("Silver", ignoreCase = true)
-    val makVal = if (isSilver) mak else (rawCost * (mak / 100.0))
+    val isGold = item.metalType.equals("Gold", ignoreCase = true)
+    val makVal = if (isSilver) {
+        mak
+    } else if (isGold) {
+        wt * rate * (mak / 100.0)
+    } else {
+        rawCost * (mak / 100.0)
+    }
     return rawCost + makVal + other
 }
 
@@ -2590,7 +3165,14 @@ fun AddEditOrderDialog(
                             val purityPercent = purityProfile / 100.0
                             val rawCost = wt * rate * purityPercent
                             val isSilver = item.metalType.equals("Silver", ignoreCase = true)
-                            if (isSilver) mak else (rawCost * (mak / 100.0))
+                            val isGold = item.metalType.equals("Gold", ignoreCase = true)
+                            if (isSilver) {
+                                mak
+                            } else if (isGold) {
+                                wt * rate * (mak / 100.0)
+                            } else {
+                                rawCost * (mak / 100.0)
+                            }
                         }
 
                         val liveNewGoldFineValug = itemsList.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {

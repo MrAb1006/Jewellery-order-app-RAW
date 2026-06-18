@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -198,12 +199,12 @@ data class EditableKarigarOrderItem(
     val id: String = UUID.randomUUID().toString(),
     val itemName: String = "",
     val metalType: String = "gold",
-    val quantity: String = "1",
-    val grossWeight: String = "",
-    val stoneWeight: String = "",
+    val quantity: TextFieldValue = TextFieldValue("1"),
+    val grossWeight: TextFieldValue = TextFieldValue(""),
+    val stoneWeight: TextFieldValue = TextFieldValue(""),
     val subtractStoneWeight: Boolean = false,
-    val purityPct: String = "",
-    val wastagePct: String = "0",
+    val purityPct: TextFieldValue = TextFieldValue(""),
+    val wastagePct: TextFieldValue = TextFieldValue("0"),
     val netFineRequired: Double = 0.0
 )
 
@@ -211,26 +212,27 @@ fun KarigarOrderItem.toEditable() = EditableKarigarOrderItem(
     id = id,
     itemName = itemName,
     metalType = metalType,
-    quantity = quantity.toString(),
-    grossWeight = if (grossWeight == 0.0) "" else grossWeight.toString(),
-    stoneWeight = if (stoneWeight == 0.0) "" else stoneWeight.toString(),
+    quantity = TextFieldValue(quantity.toString()),
+    grossWeight = if (grossWeight == 0.0) TextFieldValue("") else TextFieldValue(grossWeight.toString()),
+    stoneWeight = if (stoneWeight == 0.0) TextFieldValue("") else TextFieldValue(stoneWeight.toString()),
     subtractStoneWeight = subtractStoneWeight,
-    purityPct = if (purityPct == 0.0) "" else purityPct.toString(),
-    wastagePct = if (wastagePct == 0.0) "0" else wastagePct.toString(),
+    purityPct = if (purityPct == 0.0) TextFieldValue("") else TextFieldValue(purityPct.toString()),
+    wastagePct = if (wastagePct == 0.0) TextFieldValue("0") else TextFieldValue(wastagePct.toString()),
     netFineRequired = netFineRequired
 )
 
 fun EditableKarigarOrderItem.toModel(): KarigarOrderItem {
-    val gw = grossWeight.toDoubleOrNull() ?: 0.0
-    val sw = stoneWeight.toDoubleOrNull() ?: 0.0
-    val p = purityPct.toDoubleOrNull() ?: 0.0
-    val w = wastagePct.toDoubleOrNull() ?: 0.0
+    val gw = grossWeight.text.toDoubleOrNull() ?: 0.0
+    val sw = stoneWeight.text.toDoubleOrNull() ?: 0.0
+    val p = purityPct.text.toDoubleOrNull() ?: 0.0
+    val w = wastagePct.text.toDoubleOrNull() ?: 0.0
+    val q = quantity.text.toIntOrNull() ?: 1
     val effectiveGross = if (subtractStoneWeight) (gw - sw).coerceAtLeast(0.0) else gw
     return KarigarOrderItem(
         id = id,
         itemName = itemName,
         metalType = metalType,
-        quantity = quantity.toIntOrNull() ?: 1,
+        quantity = q,
         grossWeight = gw,
         stoneWeight = sw,
         subtractStoneWeight = subtractStoneWeight,
@@ -959,8 +961,8 @@ fun AddEditKarigarOrderDialog(
 
     val totalValuation = transactions.sumOf { it.amount }
     val totalMaking = when(makingType) {
-        "per_gram" -> itemsList.sumOf { it.netFineRequired * (editableItemsList.getOrNull(itemsList.indexOf(it))?.quantity?.toIntOrNull() ?: 1) } * (makingRate.toDoubleOrNull() ?: 0.0)
-        "flat" -> itemsList.sumOf { (editableItemsList.getOrNull(itemsList.indexOf(it))?.quantity?.toDoubleOrNull() ?: 1.0) } * (makingRate.toDoubleOrNull() ?: 0.0)
+        "per_gram" -> itemsList.sumOf { it.netFineRequired * (editableItemsList.getOrNull(itemsList.indexOf(it))?.quantity?.text?.toIntOrNull() ?: 1) } * (makingRate.toDoubleOrNull() ?: 0.0)
+        "flat" -> itemsList.sumOf { (editableItemsList.getOrNull(itemsList.indexOf(it))?.quantity?.text?.toDoubleOrNull() ?: 1.0) } * (makingRate.toDoubleOrNull() ?: 0.0)
         else -> 0.0
     }
     val costPrice = totalValuation + totalMaking
@@ -968,10 +970,10 @@ fun AddEditKarigarOrderDialog(
     fun updateEditableItem(index: Int, newItem: EditableKarigarOrderItem) {
         val list = editableItemsList.toMutableList()
         if (index in list.indices) {
-            val gw = newItem.grossWeight.toDoubleOrNull() ?: 0.0
-            val sw = newItem.stoneWeight.toDoubleOrNull() ?: 0.0
-            val p = newItem.purityPct.toDoubleOrNull() ?: 0.0
-            val w = newItem.wastagePct.toDoubleOrNull() ?: 0.0
+            val gw = newItem.grossWeight.text.toDoubleOrNull() ?: 0.0
+            val sw = newItem.stoneWeight.text.toDoubleOrNull() ?: 0.0
+            val p = newItem.purityPct.text.toDoubleOrNull() ?: 0.0
+            val w = newItem.wastagePct.text.toDoubleOrNull() ?: 0.0
             val effectiveGross = if (newItem.subtractStoneWeight) (gw - sw).coerceAtLeast(0.0) else gw
             list[index] = newItem.copy(netFineRequired = effectiveGross * (p + w) / 100.0)
             editableItemsList = list
@@ -1099,10 +1101,10 @@ fun AddEditKarigarOrderDialog(
                                                             }
                                                         }
                                                     }
-                                                    OutlinedTextField(value = item.quantity, onValueChange = { updateEditableItem(index, item.copy(quantity = it)) }, label = { Text("Qty") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                                                    OutlinedTextField(value = item.quantity, onValueChange = { updateEditableItem(index, item.copy(quantity = it)) }, label = { Text("Qty") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, shape = RoundedCornerShape(12.dp))
                                                 }
 
-                                                OutlinedTextField(value = item.grossWeight, onValueChange = { updateEditableItem(index, item.copy(grossWeight = it)) }, label = { Text("Gross Weight (g)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                                                OutlinedTextField(value = item.grossWeight, onValueChange = { updateEditableItem(index, item.copy(grossWeight = it)) }, label = { Text("Gross Weight (g)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, shape = RoundedCornerShape(12.dp))
                                                 
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                                     Checkbox(checked = item.subtractStoneWeight, onCheckedChange = { updateEditableItem(index, item.copy(subtractStoneWeight = it)) })
@@ -1110,12 +1112,12 @@ fun AddEditKarigarOrderDialog(
                                                 }
                                                 
                                                 if (item.subtractStoneWeight) {
-                                                    OutlinedTextField(value = item.stoneWeight, onValueChange = { updateEditableItem(index, item.copy(stoneWeight = it)) }, label = { Text("Stone Weight (g)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                                                    OutlinedTextField(value = item.stoneWeight, onValueChange = { updateEditableItem(index, item.copy(stoneWeight = it)) }, label = { Text("Stone Weight (g)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, shape = RoundedCornerShape(12.dp))
                                                 }
 
                                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                    OutlinedTextField(value = item.purityPct, onValueChange = { updateEditableItem(index, item.copy(purityPct = it)) }, label = { Text("Purity %") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                                                    OutlinedTextField(value = item.wastagePct, onValueChange = { updateEditableItem(index, item.copy(wastagePct = it)) }, label = { Text("Wastage %") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                                                    OutlinedTextField(value = item.purityPct, onValueChange = { updateEditableItem(index, item.copy(purityPct = it)) }, label = { Text("Purity %") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, shape = RoundedCornerShape(12.dp))
+                                                    OutlinedTextField(value = item.wastagePct, onValueChange = { updateEditableItem(index, item.copy(wastagePct = it)) }, label = { Text("Wastage %") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, shape = RoundedCornerShape(12.dp))
                                                 }
                                                 
                                                 Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)).padding(12.dp), contentAlignment = Alignment.Center) {
@@ -1230,8 +1232,8 @@ fun AddEditKarigarOrderDialog(
                                     
                                     val rate = makingRate.toDoubleOrNull() ?: 0.0
                                     val totalMaking = when(makingType) {
-                                        "per_gram" -> itemsList.sumOf { it.netFineRequired * (editableItemsList.getOrNull(itemsList.indexOf(it))?.quantity?.toIntOrNull() ?: 1) } * rate
-                                        "flat" -> itemsList.sumOf { (editableItemsList.getOrNull(itemsList.indexOf(it))?.quantity?.toDoubleOrNull() ?: 1.0) } * rate
+                                        "per_gram" -> itemsList.sumOf { it.netFineRequired * (editableItemsList.getOrNull(itemsList.indexOf(it))?.quantity?.text?.toIntOrNull() ?: 1) } * rate
+                                        "flat" -> itemsList.sumOf { (editableItemsList.getOrNull(itemsList.indexOf(it))?.quantity?.text?.toDoubleOrNull() ?: 1.0) } * rate
                                         else -> 0.0
                                     }
                                     

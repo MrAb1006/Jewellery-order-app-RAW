@@ -90,41 +90,24 @@ fun DashboardScreen(
     val selectedOrderForEdit = orders.find { it.id == selectedOrderForEditId }
     
     val deletedOrders by viewModel.deletedOrders.collectAsStateWithLifecycle()
-    val deletedKarigarOrders by viewModel.deletedKarigarOrders.collectAsStateWithLifecycle()
     var showActivityDialog by rememberSaveable { mutableStateOf(false) }
     var showCalculatorDialog by rememberSaveable { mutableStateOf(false) }
-    var showBackupDialog by rememberSaveable { mutableStateOf(false) }
-    var showRestoreDialog by rememberSaveable { mutableStateOf(false) }
-    var currentView by rememberSaveable { mutableStateOf("main") } // "main" or "karigar"
 
-    if (currentView == "karigar") {
-        KarigarDashboardScreen(
-            viewModel = viewModel,
-            onBack = { currentView = "main" }
-        )
-        return
-    }
-
-    // Master Export Logic
-    var backupCustomer by remember { mutableStateOf(false) }
-    var backupKarigar by remember { mutableStateOf(false) }
-
-    val masterExportLauncher = rememberLauncherForActivityResult(
+    // Launcher for creating a backup file (export)
+    val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
         uri?.let {
             try {
-                val masterObj = JSONObject()
-                if (backupCustomer) {
-                    masterObj.put("customerOrders", JSONArray(serializeOrders(orders)))
-                }
-                if (backupKarigar) {
-                    masterObj.put("karigarOrders", JSONArray(serializeKarigarOrders(viewModel.filteredKarigarOrders.value)))
-                }
-                val json = masterObj.toString(4)
-                context.contentResolver.openOutputStream(it)?.use { os ->
+                val json = serializeOrders(orders)
+                val os = context.contentResolver.openOutputStream(it)
+                if (os != null) {
                     os.write(json.toByteArray())
-                    Toast.makeText(context, "Backup exported successfully!", Toast.LENGTH_LONG).show()
+                    os.flush()
+                    os.close()
+                    Toast.makeText(context, "Backup exported successfully to file system!", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(context, "Export failed: cannot write stream", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
                 Toast.makeText(context, "Export failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
@@ -132,27 +115,31 @@ fun DashboardScreen(
         }
     }
 
-    val masterImportLauncher = rememberLauncherForActivityResult(
+    // Launcher for opening a backup file to restore (import)
+    val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let {
             try {
-                context.contentResolver.openInputStream(it)?.use { isStream ->
-                    val jsonStr = String(isStream.readBytes())
-                    val masterObj = JSONObject(jsonStr)
-                    
-                    if (backupCustomer && masterObj.has("customerOrders")) {
-                        val restored = deserializeOrders(masterObj.getJSONArray("customerOrders").toString())
-                        restored.forEach { o -> viewModel.addOrder(o.copy(id = 0)) }
+                val isStream = context.contentResolver.openInputStream(it)
+                if (isStream != null) {
+                    val bytes = isStream.readBytes()
+                    isStream.close()
+                    val jsonStr = String(bytes)
+                    val restoredOrders = deserializeOrders(jsonStr)
+                    if (restoredOrders.isNotEmpty()) {
+                        restoredOrders.forEach { order ->
+                            viewModel.addOrder(order.copy(id = 0)) // Insert as new copy
+                        }
+                        Toast.makeText(context, "Successfully restored ${restoredOrders.size} orders!", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(context, "Restore failed: File is empty or in an invalid format.", Toast.LENGTH_LONG).show()
                     }
-                    if (backupKarigar && masterObj.has("karigarOrders")) {
-                        val restored = deserializeKarigarOrders(masterObj.getJSONArray("karigarOrders").toString())
-                        restored.forEach { o -> viewModel.addKarigarOrder(o.copy(id = 0)) }
-                    }
-                    Toast.makeText(context, "Database restored successfully!", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(context, "Restore failed: cannot read stream", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Restore failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "Restore failed: Invalid back-up format. Error: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -193,7 +180,7 @@ fun DashboardScreen(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "SUHAS JEWELLERS · v. 0.2.5",
+                        text = "SUHAS JEWELLERS · v. 0.2.4",
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.5.sp,
@@ -279,26 +266,18 @@ fun DashboardScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text("Backup Database") },
-                                leadingIcon = { Icon(Icons.Default.Backup, null, tint = Color(0xFFC5A059)) },
+                                leadingIcon = { Icon(Icons.Default.Upload, contentDescription = null, tint = Color(0xFFC5A059)) },
                                 onClick = {
                                     showBackupMenu = false
-                                    showBackupDialog = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Restore Database") },
-                                leadingIcon = { Icon(Icons.Default.Restore, null, tint = Color(0xFFC5A059)) },
-                                onClick = {
-                                    showBackupMenu = false
-                                    showRestoreDialog = true
+                                    exportLauncher.launch("suhas_jewellers_backup.json")
                                 }
                             )
                     DropdownMenuItem(
-                        text = { Text("Karigar Section") },
-                        leadingIcon = { Icon(Icons.Default.Engineering, contentDescription = null, tint = Color(0xFFC5A059)) },
+                        text = { Text("Restore Database") },
+                        leadingIcon = { Icon(Icons.Default.Download, contentDescription = null, tint = Color(0xFFC5A059)) },
                         onClick = {
                             showBackupMenu = false
-                            currentView = "karigar"
+                            importLauncher.launch(arrayOf("application/json", "application/octet-stream", "*/*"))
                         }
                     )
                     DropdownMenuItem(
@@ -576,62 +555,21 @@ fun DashboardScreen(
     }
 
     if (showActivityDialog) {
-        UnifiedActivityLogDialog(
-            deletedCustomerOrders = deletedOrders,
-            deletedKarigarOrders = deletedKarigarOrders,
+        ActivityLogDialog(
+            deletedOrders = deletedOrders,
             onDismiss = { showActivityDialog = false },
-            onRestoreCustomer = { item ->
+            onRestore = { item ->
                 viewModel.restoreDeletedOrder(item)
                 Toast.makeText(context, "Order restored to system!", Toast.LENGTH_SHORT).show()
             },
-            onDeleteCustomerPermanently = { id ->
+            onDeletePermanently = { id ->
                 viewModel.permanentlyDeleteDeletedOrder(id)
                 Toast.makeText(context, "Permanently purged from system memory.", Toast.LENGTH_SHORT).show()
             },
-            onRestoreKarigar = { item ->
-                viewModel.restoreDeletedKarigarOrder(item)
-                Toast.makeText(context, "Karigar Order restored!", Toast.LENGTH_SHORT).show()
-            },
-            onDeleteKarigarPermanently = { id ->
-                viewModel.permanentlyDeleteDeletedKarigarOrder(id)
-                Toast.makeText(context, "Permanently deleted!", Toast.LENGTH_SHORT).show()
-            },
-            onClearAll = { cust, kari ->
-                if (cust) viewModel.clearAllDeletedOrders()
-                if (kari) viewModel.clearAllDeletedKarigarOrders()
-                Toast.makeText(context, "Activity Bin purged.", Toast.LENGTH_SHORT).show()
+            onClearAll = {
+                viewModel.clearAllDeletedOrders()
+                Toast.makeText(context, "Activity Bin successfully purged.", Toast.LENGTH_SHORT).show()
             }
-        )
-    }
-
-    if (showBackupDialog) {
-        SelectiveBackupDialog(
-            onDismiss = { showBackupDialog = false },
-            onConfirm = { cust, kari ->
-                backupCustomer = cust
-                backupKarigar = kari
-                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-                masterExportLauncher.launch("SJ_backup_$timestamp.json")
-                showBackupDialog = false
-            }
-        )
-    }
-
-    if (showRestoreDialog) {
-        SelectiveRestoreDialog(
-            onDismiss = { showRestoreDialog = false },
-            onConfirm = { cust, kari ->
-                backupCustomer = cust
-                backupKarigar = kari
-                masterImportLauncher.launch(arrayOf("application/json"))
-                showRestoreDialog = false
-            }
-        )
-    }
-
-    if (showCalculatorDialog) {
-        BidirectionalCalculatorDialog(
-            onDismiss = { showCalculatorDialog = false }
         )
     }
 }
@@ -862,14 +800,8 @@ fun OrderCard(
                                 overflow = TextOverflow.Ellipsis
                             )
                             val purityDisplay = if (item.purity.toDoubleOrNull() != null) "${item.purity}%" else item.purity
-                            val netWt = (item.approxWeight - item.stoneWeightGram).coerceAtLeast(0.0)
-                            val wtDetail = if (item.stoneWeightGram > 0) {
-                                "${String.format(Locale.getDefault(), "%.2f", item.approxWeight)}g (Net ${String.format(Locale.getDefault(), "%.2f", netWt)}g)"
-                            } else {
-                                "${String.format(Locale.getDefault(), "%.2f", item.approxWeight)} g"
-                            }
                             Text(
-                                text = "${item.metalType} · $purityDisplay · $wtDetail",
+                                text = "${item.metalType} · $purityDisplay · ${String.format(Locale.getDefault(), "%.2f", item.approxWeight)} g",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -1073,7 +1005,7 @@ fun OrderDetailDialog(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                "This will permanently remove this record and estimates from the database. This action is irreversible.",
+                                "This will permanently remove Samantha's records and estimates from the Aurelia database. This action is irreversible.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
                             )
@@ -1301,7 +1233,8 @@ fun DetailMetricsGrid(
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f), modifier = Modifier.padding(vertical = 10.dp))
 
                     val formattedPurity = if (item.purity.toDoubleOrNull() != null) "${item.purity}%" else item.purity
-                    val gridItems = mutableListOf(
+
+                    val gridItems = listOf(
                         Pair("Metal Type", item.metalType),
                         Pair("Purity Profile", formattedPurity),
                         Pair("Weight (g)", "${String.format(Locale.getDefault(), "%.2f", item.approxWeight)} g"),
@@ -1309,10 +1242,6 @@ fun DetailMetricsGrid(
                         Pair("Making Charge", "${String.format(Locale.getDefault(), "%.1f", item.makingCharges)}%"),
                         Pair("Extra / Stones", "₹${String.format(Locale.getDefault(), "%,.0f", item.otherCharges)}")
                     )
-
-                    if (item.stoneWeightGram > 0) {
-                        gridItems.add(Pair("Stone Weight", "${item.stoneWeightGram} g / ${item.stoneWeightCarat} ct"))
-                    }
 
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         gridItems.chunked(2).forEach { rowPairs ->
@@ -1380,8 +1309,7 @@ fun BillingTicket(order: Order) {
 
     val totalMakingCharges = items.sumOf { item ->
         val purityPercent = (item.purity.toDoubleOrNull() ?: 100.0) / 100.0
-        val effectiveWt = (item.approxWeight - item.stoneWeightGram).coerceAtLeast(0.0)
-        val metalValValue = effectiveWt * item.agreedRate * purityPercent
+        val metalValValue = item.approxWeight * item.agreedRate * purityPercent
         val isSilver = item.metalType.equals("Silver", ignoreCase = true)
         val isGold = item.metalType.equals("Gold", ignoreCase = true)
         if (isSilver) {
@@ -1395,8 +1323,7 @@ fun BillingTicket(order: Order) {
 
     val newGoldFineValug = items.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
         val purityPercent = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
-        val effectiveWt = (it.approxWeight - it.stoneWeightGram).coerceAtLeast(0.0)
-        effectiveWt * purityPercent * it.agreedRate
+        it.approxWeight * purityPercent * it.agreedRate
     }
     val oldGoldFineValug = oldItems.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
         calculateOldItemValuation(it, items)
@@ -1405,8 +1332,7 @@ fun BillingTicket(order: Order) {
 
     val newSilverFineValug = items.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
         val purityPercent = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
-        val effectiveWt = (it.approxWeight - it.stoneWeightGram).coerceAtLeast(0.0)
-        effectiveWt * purityPercent * it.agreedRate
+        it.approxWeight * purityPercent * it.agreedRate
     }
     val oldSilverFineValug = oldItems.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
         calculateOldItemValuation(it, items)
@@ -1424,8 +1350,7 @@ fun BillingTicket(order: Order) {
         Column(modifier = Modifier.padding(16.dp)) {
             items.forEachIndexed { index, item ->
                 val purityPercent = (item.purity.toDoubleOrNull() ?: 100.0) / 100.0
-                val effectiveWt = (item.approxWeight - item.stoneWeightGram).coerceAtLeast(0.0)
-                val metalValValue = effectiveWt * item.agreedRate * purityPercent
+                val metalValValue = item.approxWeight * item.agreedRate * purityPercent
                 val isSilver = item.metalType.equals("Silver", ignoreCase = true)
                 val isGold = item.metalType.equals("Gold", ignoreCase = true)
                 val makingChargesAmount = if (isSilver) {
@@ -1448,9 +1373,8 @@ fun BillingTicket(order: Order) {
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     val purityLabel = if (item.purity.toDoubleOrNull() != null) "${item.purity}%" else item.purity
-                    val wtDisplay = if (item.stoneWeightGram > 0) "${String.format(Locale.getDefault(), "%.2f", item.approxWeight)}g - ${item.stoneWeightGram}g stone" else "${String.format(Locale.getDefault(), "%.2f", item.approxWeight)}g"
                     Text(
-                        text = "  · Metal Value ($wtDisplay @ ₹${String.format(Locale.getDefault(), "%,.0f", item.agreedRate)}, $purityLabel)",
+                        text = "  · Metal Value (${String.format(Locale.getDefault(), "%.2f", item.approxWeight)}g @ ₹${String.format(Locale.getDefault(), "%,.0f", item.agreedRate)}, $purityLabel)",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFF5C5243)
                     )
@@ -1464,14 +1388,7 @@ fun BillingTicket(order: Order) {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    val labelText = if (isSilver) {
-                         "  · Making Charges (Flat addition)"
-                    } else if (isGold) {
-                        val rsPerG = item.agreedRate * (item.makingCharges / 100.0)
-                        "  · Making Charges (₹${String.format(Locale.getDefault(), "%,.0f", rsPerG)}/g on Gross weight)"
-                    } else {
-                        "  · Making Charges (${String.format(Locale.getDefault(), "%.1f", item.makingCharges)}%)"
-                    }
+                    val labelText = if (isSilver) "  · Making Charges (Flat addition)" else "  · Making Charges (${String.format(Locale.getDefault(), "%.1f", item.makingCharges)}%)"
                     Text(
                         text = labelText,
                         style = MaterialTheme.typography.labelSmall,
@@ -1483,18 +1400,13 @@ fun BillingTicket(order: Order) {
                         color = Color(0xFF2C251C)
                     )
                 }
-                if (item.otherCharges > 0 || item.stoneWeightGram > 0) {
+                if (item.otherCharges > 0) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        val stoneLabel = if (item.stoneWeightGram > 0) {
-                            "  · Stones & Diamonds (${item.stoneWeightGram}g / ${item.stoneWeightCarat}ct)"
-                        } else {
-                            "  · Stones, Diamonds & others"
-                        }
                         Text(
-                            text = stoneLabel,
+                            text = "  · Stones, Diamonds & others",
                             style = MaterialTheme.typography.labelSmall,
                             color = Color(0xFF5C5243)
                         )
@@ -1531,8 +1443,7 @@ fun BillingTicket(order: Order) {
             // Unreduced Grand Total & Exchange Credits
             val unreducedGrandTotal = items.sumOf { item ->
                 val purityPercent = (item.purity.toDoubleOrNull() ?: 100.0) / 100.0
-                val effectiveWt = (item.approxWeight - item.stoneWeightGram).coerceAtLeast(0.0)
-                val metalValValue = effectiveWt * item.agreedRate * purityPercent
+                val metalValValue = item.approxWeight * item.agreedRate * purityPercent
                 val isSilver = item.metalType.equals("Silver", ignoreCase = true)
                 val isGold = item.metalType.equals("Gold", ignoreCase = true)
                 val makingChargesAmount = if (isSilver) {
@@ -1758,20 +1669,12 @@ fun generateKacchiPawtiPdf(context: android.content.Context, order: Order): File
             
             val isSilver = item.metalType.equals("Silver", ignoreCase = true)
             val isGold = item.metalType.equals("Gold", ignoreCase = true)
-            val chargesTxt = when {
-                isSilver -> "Flat ₹${String.format(java.util.Locale.getDefault(), "%,.0f", item.makingCharges)}"
-                isGold -> {
-                    val rsPerG = item.agreedRate * (item.makingCharges / 100.0)
-                    "₹${String.format(java.util.Locale.getDefault(), "%,.0f", rsPerG)}/g"
-                }
-                else -> "${item.makingCharges}%"
-            }
+            val chargesTxt = if (isSilver) "Flat ₹${item.makingCharges}" else "${item.makingCharges}%"
             canvas.drawText(chargesTxt, 410f, y, paint)
             
             // Calculating item valuation
             val purityPercent = (item.purity.toDoubleOrNull() ?: 100.0) / 100.0
-            val effectiveWt = (item.approxWeight - item.stoneWeightGram).coerceAtLeast(0.0)
-            val rawCost = effectiveWt * item.agreedRate * purityPercent
+            val rawCost = item.approxWeight * item.agreedRate * purityPercent
             val makingAmount = if (isSilver) {
                 item.makingCharges
             } else if (isGold) {
@@ -1782,23 +1685,6 @@ fun generateKacchiPawtiPdf(context: android.content.Context, order: Order): File
             val totalVal = rawCost + makingAmount + item.otherCharges
             
             canvas.drawText("₹${String.format(java.util.Locale.getDefault(), "%,.0f", totalVal)}", 480f, y, paint)
-
-            // Add stone details if present
-            if (item.stoneWeightGram > 0 || item.otherCharges > 0) {
-                y += 12f
-                paint.textSize = 8f
-                paint.color = android.graphics.Color.GRAY
-                val stoneDetails = mutableListOf<String>()
-                if (item.stoneWeightGram > 0) {
-                    stoneDetails.add("Stone: ${item.stoneWeightGram}g (${item.stoneWeightCarat}ct)")
-                }
-                if (item.otherCharges > 0) {
-                    stoneDetails.add("Stone/Other Charges: ₹${String.format(java.util.Locale.getDefault(), "%,.0f", item.otherCharges)}")
-                }
-                canvas.drawText("  · " + stoneDetails.joinToString(", "), 45f, y, paint)
-                paint.textSize = 9.5f
-                paint.color = android.graphics.Color.BLACK
-            }
         }
         
         // Draw line
@@ -1852,8 +1738,7 @@ fun generateKacchiPawtiPdf(context: android.content.Context, order: Order): File
         
         val totalMakingCharges = items.sumOf { item ->
             val purityPercent = (item.purity.toDoubleOrNull() ?: 100.0) / 100.0
-            val effectiveWt = (item.approxWeight - item.stoneWeightGram).coerceAtLeast(0.0)
-            val metalValValue = effectiveWt * item.agreedRate * purityPercent
+            val metalValValue = item.approxWeight * item.agreedRate * purityPercent
             val isSilver = item.metalType.equals("Silver", ignoreCase = true)
             val isGold = item.metalType.equals("Gold", ignoreCase = true)
             if (isSilver) {
@@ -1867,8 +1752,7 @@ fun generateKacchiPawtiPdf(context: android.content.Context, order: Order): File
         
         val newGoldFineValug = items.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
             val purityPercent = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
-            val effectiveWt = (it.approxWeight - it.stoneWeightGram).coerceAtLeast(0.0)
-            effectiveWt * purityPercent * it.agreedRate
+            it.approxWeight * purityPercent * it.agreedRate
         }
         val oldGoldFineValug = oldItems.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
             calculateOldItemValuation(it, items)
@@ -1877,8 +1761,7 @@ fun generateKacchiPawtiPdf(context: android.content.Context, order: Order): File
 
         val newSilverFineValug = items.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
             val purityPercent = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
-            val effectiveWt = (it.approxWeight - it.stoneWeightGram).coerceAtLeast(0.0)
-            effectiveWt * purityPercent * it.agreedRate
+            it.approxWeight * purityPercent * it.agreedRate
         }
         val oldSilverFineValug = oldItems.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
             calculateOldItemValuation(it, items)
@@ -2189,14 +2072,11 @@ data class EditableItem(
     val id: String = UUID.randomUUID().toString(),
     val jewelleryType: String = "Ring",
     val metalType: String = "Gold",
-    val purity: String = "",
+    val purity: String = "91.6",
     val approxWeight: String = "",
-    val stoneWeightCarat: String = "",
-    val stoneWeightGram: String = "",
     val agreedRate: String = "",
     val makingCharges: String = "0",
     val otherCharges: String = "0",
-    val showStoneOtherCharges: Boolean = false,
     val status: String = "Pending"
 ) : Serializable
 
@@ -2205,7 +2085,7 @@ data class EditableOldItem(
     val itemName: String = "",
     val metalType: String = "Gold",
     val approxWeight: String = "",
-    val purity: String = "",
+    val purity: String = "91.6",
     val agreedRate: String = ""
 ) : Serializable
 
@@ -2218,12 +2098,9 @@ fun serializeEditableItems(list: List<EditableItem>): String {
         obj.put("metalType", item.metalType)
         obj.put("purity", item.purity)
         obj.put("approxWeight", item.approxWeight)
-        obj.put("stoneWeightCarat", item.stoneWeightCarat)
-        obj.put("stoneWeightGram", item.stoneWeightGram)
         obj.put("agreedRate", item.agreedRate)
         obj.put("makingCharges", item.makingCharges)
         obj.put("otherCharges", item.otherCharges)
-        obj.put("showStoneOtherCharges", item.showStoneOtherCharges)
         obj.put("status", item.status)
         arr.put(obj)
     }
@@ -2242,14 +2119,11 @@ fun deserializeEditableItems(json: String): List<EditableItem> {
                     id = obj.optString("id", UUID.randomUUID().toString()),
                     jewelleryType = obj.optString("jewelleryType", "Ring"),
                     metalType = obj.optString("metalType", "Gold"),
-                    purity = obj.optString("purity", ""),
+                    purity = obj.optString("purity", "91.6"),
                     approxWeight = obj.optString("approxWeight", ""),
-                    stoneWeightCarat = obj.optString("stoneWeightCarat", ""),
-                    stoneWeightGram = obj.optString("stoneWeightGram", ""),
                     agreedRate = obj.optString("agreedRate", ""),
                     makingCharges = obj.optString("makingCharges", "0"),
                     otherCharges = obj.optString("otherCharges", "0"),
-                    showStoneOtherCharges = obj.optBoolean("showStoneOtherCharges", false),
                     status = obj.optString("status", "Pending")
                 )
             )
@@ -2342,16 +2216,13 @@ fun calculateOldItemValuationEditable(oldItem: EditableOldItem, itemsList: List<
 
 fun calculateItemTotal(item: EditableItem): Double {
     val wt = item.approxWeight.toDoubleOrNull() ?: 0.0
-    val swGram = item.stoneWeightGram.toDoubleOrNull() ?: 0.0
-    val effectiveWt = (wt - swGram).coerceAtLeast(0.0)
-    
     val rate = item.agreedRate.toDoubleOrNull() ?: 0.0
     val mak = item.makingCharges.toDoubleOrNull() ?: 0.0
     val other = item.otherCharges.toDoubleOrNull() ?: 0.0
     val purityProfile = item.purity.toDoubleOrNull() ?: 100.0
     val purityPercent = purityProfile / 100.0
 
-    val rawCost = effectiveWt * rate * purityPercent
+    val rawCost = wt * rate * purityPercent
     val isSilver = item.metalType.equals("Silver", ignoreCase = true)
     val isGold = item.metalType.equals("Gold", ignoreCase = true)
     val makVal = if (isSilver) {
@@ -2359,22 +2230,20 @@ fun calculateItemTotal(item: EditableItem): Double {
     } else if (isGold) {
         wt * rate * (mak / 100.0)
     } else {
-        wt * (mak / 100.0)
+        rawCost * (mak / 100.0)
     }
     return rawCost + makVal + other
 }
 
 fun calculateModelItemTotal(item: OrderItem): Double {
     val wt = item.approxWeight
-    val effectiveWt = (wt - item.stoneWeightGram).coerceAtLeast(0.0)
-    
     val rate = item.agreedRate
     val mak = item.makingCharges
     val other = item.otherCharges
     val purityProfile = item.purity.toDoubleOrNull() ?: 100.0
     val purityPercent = purityProfile / 100.0
 
-    val rawCost = effectiveWt * rate * purityPercent
+    val rawCost = wt * rate * purityPercent
     val isSilver = item.metalType.equals("Silver", ignoreCase = true)
     val isGold = item.metalType.equals("Gold", ignoreCase = true)
     val makVal = if (isSilver) {
@@ -2382,7 +2251,7 @@ fun calculateModelItemTotal(item: OrderItem): Double {
     } else if (isGold) {
         wt * rate * (mak / 100.0)
     } else {
-        wt * (mak / 100.0)
+        rawCost * (mak / 100.0)
     }
     return rawCost + makVal + other
 }
@@ -2410,12 +2279,9 @@ fun AddEditOrderDialog(
                     metalType = item.metalType,
                     purity = item.purity,
                     approxWeight = if (item.approxWeight == 0.0) "" else item.approxWeight.toString(),
-                    stoneWeightCarat = if (item.stoneWeightCarat == 0.0) "" else item.stoneWeightCarat.toString(),
-                    stoneWeightGram = if (item.stoneWeightGram == 0.0) "" else item.stoneWeightGram.toString(),
                     agreedRate = if (item.agreedRate == 0.0) "" else item.agreedRate.toString(),
                     makingCharges = item.makingCharges.toString(),
                     otherCharges = item.otherCharges.toString(),
-                    showStoneOtherCharges = item.showStoneOtherCharges,
                     status = item.status
                 )
             } ?: listOf(EditableItem())
@@ -2668,11 +2534,11 @@ fun AddEditOrderDialog(
                                                         text = { Text(option) },
                                                         onClick = {
                                                             val defaultPurity = when (option) {
-                                                                "Gold" -> ""
-                                                                "Silver" -> ""
-                                                                "Platinum" -> ""
-                                                                "Rose Gold" -> ""
-                                                                else -> ""
+                                                                "Gold" -> "91.6"
+                                                                "Silver" -> "92.5"
+                                                                "Platinum" -> "95.0"
+                                                                "Rose Gold" -> "75.0"
+                                                                else -> "91.6"
                                                             }
                                                             updateItemSafe(index) {
                                                                 it.copy(
@@ -2773,63 +2639,11 @@ fun AddEditOrderDialog(
                                         }
                                     }
 
-                                    // Fourth Row: Stone Toggle
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Checkbox(
-                                            checked = itemState.showStoneOtherCharges,
-                                            onCheckedChange = { newVal ->
-                                                updateItemSafe(index) { it.copy(showStoneOtherCharges = newVal) }
-                                            }
-                                        )
-                                        Text("Include Stone / Other Charges", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
-                                    }
-
-                                    if (itemState.showStoneOtherCharges) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            OutlinedTextField(
-                                                value = itemState.stoneWeightCarat,
-                                                onValueChange = { newVal ->
-                                                    val gram = newVal.toDoubleOrNull()?.let { it * 0.2 } ?: 0.0
-                                                    updateItemSafe(index) {
-                                                        it.copy(
-                                                            stoneWeightCarat = newVal,
-                                                            stoneWeightGram = if (gram > 0) String.format(Locale.getDefault(), "%.3f", gram) else ""
-                                                        )
-                                                    }
-                                                },
-                                                label = { Text("Stone Wt (Carat)") },
-                                                placeholder = { Text("1.5") },
-                                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                                shape = RoundedCornerShape(12.dp),
-                                                singleLine = true,
-                                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
-                                                modifier = Modifier.weight(1f)
-                                            )
-
-                                            OutlinedTextField(
-                                                value = itemState.stoneWeightGram,
-                                                onValueChange = { newVal ->
-                                                    val carat = newVal.toDoubleOrNull()?.let { it / 0.2 } ?: 0.0
-                                                    updateItemSafe(index) {
-                                                        it.copy(
-                                                            stoneWeightGram = newVal,
-                                                            stoneWeightCarat = if (carat > 0) String.format(Locale.getDefault(), "%.2f", carat) else ""
-                                                        )
-                                                    }
-                                                },
-                                                label = { Text("Stone Wt (Gram)") },
-                                                placeholder = { Text("0.3") },
-                                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                                shape = RoundedCornerShape(12.dp),
-                                                singleLine = true,
-                                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                        }
-
+                                    // Fourth Row: Other Charges & Status
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
                                         OutlinedTextField(
                                             value = itemState.otherCharges,
                                             onValueChange = { value ->
@@ -2841,48 +2655,47 @@ fun AddEditOrderDialog(
                                             shape = RoundedCornerShape(12.dp),
                                             singleLine = true,
                                             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
-                                            modifier = Modifier.fillMaxWidth()
+                                            modifier = Modifier.weight(1f)
                                         )
-                                    }
 
-                                    // Fifth Row: Status
-                                    // Status dropdown with highly responsive click wrapper
-                                    var expandedStatus by remember { mutableStateOf(false) }
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable { expandedStatus = true }
-                                    ) {
-                                        OutlinedTextField(
-                                            value = itemState.status,
-                                            onValueChange = {},
-                                            readOnly = true,
-                                            enabled = false,
-                                            label = { Text("Delivery Status") },
-                                            shape = RoundedCornerShape(12.dp),
-                                            colors = OutlinedTextFieldDefaults.colors(
-                                                disabledTextColor = MaterialTheme.colorScheme.onSurface,
-                                                disabledBorderColor = MaterialTheme.colorScheme.outline,
-                                                disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
-                                            ),
-                                            trailingIcon = {
-                                                Icon(Icons.Default.ArrowDropDown, contentDescription = "Show statuses")
-                                            },
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                        DropdownMenu(
-                                            expanded = expandedStatus,
-                                            onDismissRequest = { expandedStatus = false }
+                                        // Status dropdown with highly responsive click wrapper
+                                        var expandedStatus by remember { mutableStateOf(false) }
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clickable { expandedStatus = true }
                                         ) {
-                                            listOf("Pending", "In Progress", "Completed", "Delivered").forEach { statusOpt ->
-                                                DropdownMenuItem(
-                                                    text = { Text(statusOpt) },
-                                                    onClick = {
-                                                        updateItemSafe(index) { it.copy(status = statusOpt) }
-                                                        expandedStatus = false
-                                                    }
-                                                )
+                                            OutlinedTextField(
+                                                value = itemState.status,
+                                                onValueChange = {},
+                                                readOnly = true,
+                                                enabled = false,
+                                                label = { Text("Delivery Status") },
+                                                shape = RoundedCornerShape(12.dp),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                                                    disabledBorderColor = MaterialTheme.colorScheme.outline,
+                                                    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                                ),
+                                                trailingIcon = {
+                                                    Icon(Icons.Default.ArrowDropDown, contentDescription = "Show statuses")
+                                                },
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                            DropdownMenu(
+                                                expanded = expandedStatus,
+                                                onDismissRequest = { expandedStatus = false }
+                                            ) {
+                                                listOf("Pending", "In Progress", "Completed", "Delivered").forEach { statusOpt ->
+                                                    DropdownMenuItem(
+                                                        text = { Text(statusOpt) },
+                                                        onClick = {
+                                                            updateItemSafe(index) { it.copy(status = statusOpt) }
+                                                            expandedStatus = false
+                                                        }
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -3161,9 +2974,8 @@ fun AddEditOrderDialog(
                     item {
                         val newGoldFine = itemsList.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
                             val wt = it.approxWeight.toDoubleOrNull() ?: 0.0
-                            val swg = it.stoneWeightGram.toDoubleOrNull() ?: 0.0
                             val pur = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
-                            (wt - swg).coerceAtLeast(0.0) * pur
+                            wt * pur
                         }
                         val oldGoldFine = oldItemsList.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
                             val wt = it.approxWeight.toDoubleOrNull() ?: 0.0
@@ -3174,10 +2986,9 @@ fun AddEditOrderDialog(
 
                         val liveNewGoldFineValug = itemsList.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
                             val wt = it.approxWeight.toDoubleOrNull() ?: 0.0
-                            val swg = it.stoneWeightGram.toDoubleOrNull() ?: 0.0
                             val pur = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
                             val rate = it.agreedRate.toDoubleOrNull() ?: 0.0
-                            (wt - swg).coerceAtLeast(0.0) * pur * rate
+                            wt * pur * rate
                         }
                         val liveOldGoldFineValug = oldItemsList.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
                             calculateOldItemValuationEditable(it, itemsList)
@@ -3186,9 +2997,8 @@ fun AddEditOrderDialog(
 
                         val newSilverFine = itemsList.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
                             val wt = it.approxWeight.toDoubleOrNull() ?: 0.0
-                            val swg = it.stoneWeightGram.toDoubleOrNull() ?: 0.0
                             val pur = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
-                            (wt - swg).coerceAtLeast(0.0) * pur
+                            wt * pur
                         }
                         val oldSilverFine = oldItemsList.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
                             val wt = it.approxWeight.toDoubleOrNull() ?: 0.0
@@ -3199,10 +3009,9 @@ fun AddEditOrderDialog(
 
                         val liveNewSilverFineValug = itemsList.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
                             val wt = it.approxWeight.toDoubleOrNull() ?: 0.0
-                            val swg = it.stoneWeightGram.toDoubleOrNull() ?: 0.0
                             val pur = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
                             val rate = it.agreedRate.toDoubleOrNull() ?: 0.0
-                            (wt - swg).coerceAtLeast(0.0) * pur * rate
+                            wt * pur * rate
                         }
                         val liveOldSilverFineValug = oldItemsList.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
                             calculateOldItemValuationEditable(it, itemsList)
@@ -3360,13 +3169,11 @@ fun AddEditOrderDialog(
 
                         val liveTotalMakingCharges = itemsList.sumOf { item ->
                             val wt = item.approxWeight.toDoubleOrNull() ?: 0.0
-                            val swg = item.stoneWeightGram.toDoubleOrNull() ?: 0.0
                             val rate = item.agreedRate.toDoubleOrNull() ?: 0.0
                             val mak = item.makingCharges.toDoubleOrNull() ?: 0.0
                             val purityProfile = item.purity.toDoubleOrNull() ?: 100.0
                             val purityPercent = purityProfile / 100.0
-                            val effectiveWt = (wt - swg).coerceAtLeast(0.0)
-                            val rawCost = effectiveWt * rate * purityPercent
+                            val rawCost = wt * rate * purityPercent
                             val isSilver = item.metalType.equals("Silver", ignoreCase = true)
                             val isGold = item.metalType.equals("Gold", ignoreCase = true)
                             if (isSilver) {
@@ -3380,10 +3187,9 @@ fun AddEditOrderDialog(
 
                         val liveNewGoldFineValug = itemsList.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
                             val wt = it.approxWeight.toDoubleOrNull() ?: 0.0
-                            val swg = it.stoneWeightGram.toDoubleOrNull() ?: 0.0
                             val pur = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
                             val rate = it.agreedRate.toDoubleOrNull() ?: 0.0
-                            (wt - swg).coerceAtLeast(0.0) * pur * rate
+                            wt * pur * rate
                         }
                         val liveOldGoldFineValug = oldItemsList.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
                             calculateOldItemValuationEditable(it, itemsList)
@@ -3392,10 +3198,9 @@ fun AddEditOrderDialog(
 
                         val liveNewSilverFineValug = itemsList.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
                             val wt = it.approxWeight.toDoubleOrNull() ?: 0.0
-                            val swg = it.stoneWeightGram.toDoubleOrNull() ?: 0.0
                             val pur = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
                             val rate = it.agreedRate.toDoubleOrNull() ?: 0.0
-                            (wt - swg).coerceAtLeast(0.0) * pur * rate
+                            wt * pur * rate
                         }
                         val liveOldSilverFineValug = oldItemsList.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
                             calculateOldItemValuationEditable(it, itemsList)
@@ -3427,17 +3232,6 @@ fun AddEditOrderDialog(
                                 ) {
                                     Text("Grand Total Specs:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text("₹${String.format(Locale.getDefault(), "%,.2f", computedOverallTotal)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
-                                }
-                                val stoneTotalWt = itemsList.sumOf { it.stoneWeightGram.toDoubleOrNull() ?: 0.0 }
-                                val stoneTotalCharges = itemsList.sumOf { it.otherCharges.toDoubleOrNull() ?: 0.0 }
-                                if (stoneTotalWt > 0 || stoneTotalCharges > 0) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text("Included Stones:", style = MaterialTheme.typography.bodySmall, color = Color(0xFFC5A059))
-                                        Text("${String.format(Locale.getDefault(), "%.2f", stoneTotalWt)}g / ₹${String.format(Locale.getDefault(), "%,.0f", stoneTotalCharges)}", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold))
-                                    }
                                 }
                                 if (totalExchangeCredit > 0) {
                                     Row(
@@ -3600,12 +3394,9 @@ fun AddEditOrderDialog(
                                         metalType = item.metalType,
                                         purity = item.purity,
                                         approxWeight = item.approxWeight.toDoubleOrNull() ?: 0.0,
-                                        stoneWeightCarat = item.stoneWeightCarat.toDoubleOrNull() ?: 0.0,
-                                        stoneWeightGram = item.stoneWeightGram.toDoubleOrNull() ?: 0.0,
                                         agreedRate = item.agreedRate.toDoubleOrNull() ?: 0.0,
                                         makingCharges = item.makingCharges.toDoubleOrNull() ?: 0.0,
                                         otherCharges = item.otherCharges.toDoubleOrNull() ?: 0.0,
-                                        showStoneOtherCharges = item.showStoneOtherCharges,
                                         status = item.status
                                     )
                                 }
@@ -3636,8 +3427,6 @@ fun AddEditOrderDialog(
                                     finalItems.any { it.status == "In Progress" || it.status == "Completed" } -> "In Progress"
                                     else -> "Pending"
                                 }
-
-                                Toast.makeText(context, "Saving Order: Total ₹${String.format(Locale.getDefault(), "%,.0f", finalPayableAmount)}", Toast.LENGTH_SHORT).show()
 
                                 val customerOrder = Order(
                                     id = order?.id ?: 0,
@@ -3855,7 +3644,7 @@ fun MetalBalancingSheet(order: Order) {
     // Aggregates for Gold
     val newGoldFine = items.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
         val purPercent = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
-        (it.approxWeight - it.stoneWeightGram).coerceAtLeast(0.0) * purPercent
+        it.approxWeight * purPercent
     }
     val oldGoldFine = oldItems.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
         it.approxWeight * (it.purity / 100.0)
@@ -3864,8 +3653,7 @@ fun MetalBalancingSheet(order: Order) {
 
     val newGoldFineValug = items.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
         val purPercent = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
-        val effectiveWt = (it.approxWeight - it.stoneWeightGram).coerceAtLeast(0.0)
-        effectiveWt * purPercent * it.agreedRate
+        it.approxWeight * purPercent * it.agreedRate
     }
     val oldGoldFineValug = oldItems.filter { it.metalType.equals("Gold", ignoreCase = true) }.sumOf {
         calculateOldItemValuation(it, items)
@@ -3875,7 +3663,7 @@ fun MetalBalancingSheet(order: Order) {
     // Aggregates for Silver
     val newSilverFine = items.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
         val purPercent = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
-        (it.approxWeight - it.stoneWeightGram).coerceAtLeast(0.0) * purPercent
+        it.approxWeight * purPercent
     }
     val oldSilverFine = oldItems.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
         it.approxWeight * (it.purity / 100.0)
@@ -3884,8 +3672,7 @@ fun MetalBalancingSheet(order: Order) {
 
     val newSilverFineValug = items.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
         val purPercent = (it.purity.toDoubleOrNull() ?: 100.0) / 100.0
-        val effectiveWt = (it.approxWeight - it.stoneWeightGram).coerceAtLeast(0.0)
-        effectiveWt * purPercent * it.agreedRate
+        it.approxWeight * purPercent * it.agreedRate
     }
     val oldSilverFineValug = oldItems.filter { it.metalType.equals("Silver", ignoreCase = true) }.sumOf {
         calculateOldItemValuation(it, items)

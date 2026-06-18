@@ -1,5 +1,7 @@
 package com.example.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -109,6 +111,53 @@ fun DeletedKarigarOrdersList(orders: List<DeletedKarigarOrder>, onRestore: (Dele
             }
         }
     }
+}
+
+@Composable
+fun MasterBackupRestoreDialog(
+    onDismiss: () -> Unit,
+    onBackup: (Boolean, Boolean) -> Unit,
+    onRestore: (Boolean, Boolean) -> Unit
+) {
+    var showBackup by remember { mutableStateOf(true) }
+    var includeCustomer by remember { mutableStateOf(true) }
+    var includeKarigar by remember { mutableStateOf(true) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (showBackup) "Backup Master Data" else "Restore Master Data", fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                TabRow(selectedTabIndex = if (showBackup) 0 else 1, containerColor = Color.Transparent, contentColor = Color(0xFFC5A059)) {
+                    Tab(selected = showBackup, onClick = { showBackup = true }, text = { Text("Backup") })
+                    Tab(selected = !showBackup, onClick = { showBackup = false }, text = { Text("Restore") })
+                }
+                Spacer(Modifier.height(16.dp))
+                Text("Select sections to include:", style = MaterialTheme.typography.labelMedium)
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { includeCustomer = !includeCustomer }) {
+                    Checkbox(checked = includeCustomer, onCheckedChange = { includeCustomer = it })
+                    Text("Customer Section")
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { includeKarigar = !includeKarigar }) {
+                    Checkbox(checked = includeKarigar, onCheckedChange = { includeKarigar = it })
+                    Text("Karigar Section")
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (showBackup) onBackup(includeCustomer, includeKarigar)
+                    else onRestore(includeCustomer, includeKarigar)
+                },
+                enabled = includeCustomer || includeKarigar,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC5A059))
+            ) {
+                Text(if (showBackup) "Proceed" else "Select File")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable

@@ -193,6 +193,53 @@ fun deserializeKarigarOrders(json: String): List<KarigarOrder> {
 // Helper for capitalize
 fun String.capitalizeWords(): String = replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
 
+// --- Editable State Wrappers for Karigar Items ---
+data class EditableKarigarOrderItem(
+    val id: String = UUID.randomUUID().toString(),
+    val itemName: String = "",
+    val metalType: String = "gold",
+    val quantity: String = "1",
+    val grossWeight: String = "",
+    val stoneWeight: String = "",
+    val subtractStoneWeight: Boolean = false,
+    val purityPct: String = "",
+    val wastagePct: String = "0",
+    val netFineRequired: Double = 0.0
+)
+
+fun KarigarOrderItem.toEditable() = EditableKarigarOrderItem(
+    id = id,
+    itemName = itemName,
+    metalType = metalType,
+    quantity = quantity.toString(),
+    grossWeight = if (grossWeight == 0.0) "" else grossWeight.toString(),
+    stoneWeight = if (stoneWeight == 0.0) "" else stoneWeight.toString(),
+    subtractStoneWeight = subtractStoneWeight,
+    purityPct = if (purityPct == 0.0) "" else purityPct.toString(),
+    wastagePct = if (wastagePct == 0.0) "0" else wastagePct.toString(),
+    netFineRequired = netFineRequired
+)
+
+fun EditableKarigarOrderItem.toModel(): KarigarOrderItem {
+    val gw = grossWeight.toDoubleOrNull() ?: 0.0
+    val sw = stoneWeight.toDoubleOrNull() ?: 0.0
+    val p = purityPct.toDoubleOrNull() ?: 0.0
+    val w = wastagePct.toDoubleOrNull() ?: 0.0
+    val effectiveGross = if (subtractStoneWeight) (gw - sw).coerceAtLeast(0.0) else gw
+    return KarigarOrderItem(
+        id = id,
+        itemName = itemName,
+        metalType = metalType,
+        quantity = quantity.toIntOrNull() ?: 1,
+        grossWeight = gw,
+        stoneWeight = sw,
+        subtractStoneWeight = subtractStoneWeight,
+        purityPct = p,
+        wastagePct = w,
+        netFineRequired = effectiveGross * (p + w) / 100.0
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun KarigarDashboardScreen(
@@ -874,7 +921,14 @@ fun AddEditKarigarOrderDialog(
     var urgency by remember { mutableStateOf(order?.urgency ?: "normal") }
     
     // Multi-Item State
-    var itemsList by remember { mutableStateOf(deserializeKarigarItems(order?.itemsJson ?: "[]").ifEmpty { listOf(KarigarOrderItem()) }) }
+    var editableItemsList by remember { 
+        mutableStateOf(
+            deserializeKarigarItems(order?.itemsJson ?: "[]")
+                .map { it.toEditable() }
+                .ifEmpty { listOf(EditableKarigarOrderItem()) }
+        ) 
+    }
+    val itemsList by remember { derivedStateOf { editableItemsList.map { it.toModel() } } }
     
     // Balance State
     var transactions by remember { mutableStateOf(deserializeKarigarTransactions(order?.transactionsJson ?: "[]")) }
@@ -905,20 +959,22 @@ fun AddEditKarigarOrderDialog(
 
     val totalValuation = transactions.sumOf { it.amount }
     val totalMaking = when(makingType) {
-        "per_gram" -> itemsList.sumOf { it.netFineRequired * it.quantity } * (makingRate.toDoubleOrNull() ?: 0.0)
-        "flat" -> itemsList.sumOf { it.quantity.toDouble() } * (makingRate.toDoubleOrNull() ?: 0.0)
+        "per_gram" -> itemsList.sumOf { it.netFineRequired * (editableItemsList.getOrNull(itemsList.indexOf(it))?.quantity?.toIntOrNull() ?: 1) } * (makingRate.toDoubleOrNull() ?: 0.0)
+        "flat" -> itemsList.sumOf { (editableItemsList.getOrNull(itemsList.indexOf(it))?.quantity?.toDoubleOrNull() ?: 1.0) } * (makingRate.toDoubleOrNull() ?: 0.0)
         else -> 0.0
     }
     val costPrice = totalValuation + totalMaking
 
-    fun updateItem(index: Int, newItem: KarigarOrderItem) {
-        val list = itemsList.toMutableList()
+    fun updateEditableItem(index: Int, newItem: EditableKarigarOrderItem) {
+        val list = editableItemsList.toMutableList()
         if (index in list.indices) {
-            // Recalculate net fine for this item
-            val effectiveGross = if (newItem.subtractStoneWeight) (newItem.grossWeight - newItem.stoneWeight).coerceAtLeast(0.0) else newItem.grossWeight
-            val netFine = effectiveGross * (newItem.purityPct + newItem.wastagePct) / 100.0
-            list[index] = newItem.copy(netFineRequired = netFine)
-            itemsList = list
+            val gw = newItem.grossWeight.toDoubleOrNull() ?: 0.0
+            val sw = newItem.stoneWeight.toDoubleOrNull() ?: 0.0
+            val p = newItem.purityPct.toDoubleOrNull() ?: 0.0
+            val w = newItem.wastagePct.toDoubleOrNull() ?: 0.0
+            val effectiveGross = if (newItem.subtractStoneWeight) (gw - sw).coerceAtLeast(0.0) else gw
+            list[index] = newItem.copy(netFineRequired = effectiveGross * (p + w) / 100.0)
+            editableItemsList = list
         }
     }
 
@@ -1015,7 +1071,7 @@ fun AddEditKarigarOrderDialog(
                                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                                     Text("ITEMS & WEIGHT SPECIFICATIONS", fontSize = 10.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
                                     
-                                    itemsList.forEachIndexed { index, item ->
+                                    editableItemsList.forEachIndexed { index, item ->
                                         Card(
                                             modifier = Modifier.fillMaxWidth(),
                                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
@@ -1024,14 +1080,14 @@ fun AddEditKarigarOrderDialog(
                                             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                                     Text("Item #${index + 1}", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                                    if (itemsList.size > 1) {
-                                                        IconButton(onClick = { itemsList = itemsList.filterIndexed { i, _ -> i != index } }, modifier = Modifier.size(24.dp)) {
+                                                    if (editableItemsList.size > 1) {
+                                                        IconButton(onClick = { editableItemsList = editableItemsList.filterIndexed { i, _ -> i != index } }, modifier = Modifier.size(24.dp)) {
                                                             Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
                                                         }
                                                     }
                                                 }
                                                 
-                                                OutlinedTextField(value = item.itemName, onValueChange = { updateItem(index, item.copy(itemName = it)) }, label = { Text("Item Name") }, modifier = Modifier.fillMaxWidth())
+                                                OutlinedTextField(value = item.itemName, onValueChange = { updateEditableItem(index, item.copy(itemName = it)) }, label = { Text("Item Name") }, modifier = Modifier.fillMaxWidth())
                                                 
                                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                                     var expandedMetal by remember { mutableStateOf(false) }
@@ -1039,27 +1095,27 @@ fun AddEditKarigarOrderDialog(
                                                         OutlinedTextField(value = item.metalType.capitalizeWords(), onValueChange = {}, readOnly = true, label = { Text("Metal") }, trailingIcon = { Icon(Icons.Default.ArrowDropDown, null) }, modifier = Modifier.fillMaxWidth().clickable { expandedMetal = true }, enabled = false, colors = OutlinedTextFieldDefaults.colors(disabledTextColor = MaterialTheme.colorScheme.onSurface, disabledBorderColor = MaterialTheme.colorScheme.outline))
                                                         DropdownMenu(expanded = expandedMetal, onDismissRequest = { expandedMetal = false }) {
                                                             listOf("gold", "silver").forEach { m ->
-                                                                DropdownMenuItem(text = { Text(m.capitalizeWords()) }, onClick = { updateItem(index, item.copy(metalType = m)); expandedMetal = false })
+                                                                DropdownMenuItem(text = { Text(m.capitalizeWords()) }, onClick = { updateEditableItem(index, item.copy(metalType = m)); expandedMetal = false })
                                                             }
                                                         }
                                                     }
-                                                    OutlinedTextField(value = item.quantity.toString(), onValueChange = { updateItem(index, item.copy(quantity = it.toIntOrNull() ?: 1)) }, label = { Text("Qty") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                                                    OutlinedTextField(value = item.quantity, onValueChange = { updateEditableItem(index, item.copy(quantity = it)) }, label = { Text("Qty") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                                                 }
 
-                                                OutlinedTextField(value = if(item.grossWeight==0.0) "" else item.grossWeight.toString(), onValueChange = { updateItem(index, item.copy(grossWeight = it.toDoubleOrNull() ?: 0.0)) }, label = { Text("Gross Weight (g)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                                                OutlinedTextField(value = item.grossWeight, onValueChange = { updateEditableItem(index, item.copy(grossWeight = it)) }, label = { Text("Gross Weight (g)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                                                 
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Checkbox(checked = item.subtractStoneWeight, onCheckedChange = { updateItem(index, item.copy(subtractStoneWeight = it)) })
+                                                    Checkbox(checked = item.subtractStoneWeight, onCheckedChange = { updateEditableItem(index, item.copy(subtractStoneWeight = it)) })
                                                     Text("Subtract Stone Weight", fontSize = 11.sp)
                                                 }
                                                 
                                                 if (item.subtractStoneWeight) {
-                                                    OutlinedTextField(value = if(item.stoneWeight==0.0) "" else item.stoneWeight.toString(), onValueChange = { updateItem(index, item.copy(stoneWeight = it.toDoubleOrNull() ?: 0.0)) }, label = { Text("Stone Weight (g)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                                                    OutlinedTextField(value = item.stoneWeight, onValueChange = { updateEditableItem(index, item.copy(stoneWeight = it)) }, label = { Text("Stone Weight (g)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                                                 }
 
                                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                    OutlinedTextField(value = if(item.purityPct==0.0) "" else item.purityPct.toString(), onValueChange = { updateItem(index, item.copy(purityPct = it.toDoubleOrNull() ?: 0.0)) }, label = { Text("Purity %") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                                                    OutlinedTextField(value = if(item.wastagePct==0.0) "" else item.wastagePct.toString(), onValueChange = { updateItem(index, item.copy(wastagePct = it.toDoubleOrNull() ?: 0.0)) }, label = { Text("Wastage %") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                                                    OutlinedTextField(value = item.purityPct, onValueChange = { updateEditableItem(index, item.copy(purityPct = it)) }, label = { Text("Purity %") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                                                    OutlinedTextField(value = item.wastagePct, onValueChange = { updateEditableItem(index, item.copy(wastagePct = it)) }, label = { Text("Wastage %") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                                                 }
                                                 
                                                 Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)).padding(12.dp), contentAlignment = Alignment.Center) {
@@ -1069,7 +1125,7 @@ fun AddEditKarigarOrderDialog(
                                         }
                                     }
                                     
-                                    Button(onClick = { itemsList = itemsList + KarigarOrderItem() }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors()) {
+                                    Button(onClick = { editableItemsList = editableItemsList + EditableKarigarOrderItem() }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors()) {
                                         Icon(Icons.Default.Add, null)
                                         Spacer(Modifier.width(8.dp))
                                         Text("Add Another Item")
@@ -1173,16 +1229,16 @@ fun AddEditKarigarOrderDialog(
                                     OutlinedTextField(value = makingRate, onValueChange = { makingRate = it }, label = { Text("Making Rate") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
                                     
                                     val rate = makingRate.toDoubleOrNull() ?: 0.0
-                                    val est = when(makingType) {
-                                        "per_gram" -> itemsList.sumOf { it.netFineRequired * it.quantity } * rate
-                                        "flat" -> itemsList.sumOf { it.quantity.toDouble() } * rate
+                                    val totalMaking = when(makingType) {
+                                        "per_gram" -> itemsList.sumOf { it.netFineRequired * (editableItemsList.getOrNull(itemsList.indexOf(it))?.quantity?.toIntOrNull() ?: 1) } * rate
+                                        "flat" -> itemsList.sumOf { (editableItemsList.getOrNull(itemsList.indexOf(it))?.quantity?.toDoubleOrNull() ?: 1.0) } * rate
                                         else -> 0.0
                                     }
                                     
                                     Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                                         Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                             Text("ESTIMATED MAKING", fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                                            Text("₹ ${String.format("%,.2f", est)}", fontSize = 24.sp, fontWeight = FontWeight.Black)
+                                            Text("₹ ${String.format("%,.2f", totalMaking)}", fontSize = 24.sp, fontWeight = FontWeight.Black)
                                         }
                                     }
                                 }

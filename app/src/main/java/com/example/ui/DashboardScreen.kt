@@ -47,6 +47,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1314,15 +1315,25 @@ fun DetailMetricsGrid(
                         gridItems.add(Pair("Stone Weight", "${item.stoneWeightGram} g / ${item.stoneWeightCarat} ct"))
                     }
 
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        gridItems.chunked(2).forEach { rowPairs ->
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                rowPairs.forEach { pair ->
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(text = pair.first, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text(text = pair.second, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
-                                    }
-                                }
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        gridItems.forEach { pair ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = pair.first,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = pair.second,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    textAlign = TextAlign.End
+                                )
                             }
                         }
                     }
@@ -1445,24 +1456,28 @@ fun BillingTicket(order: Order) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     val purityLabel = if (item.purity.toDoubleOrNull() != null) "${item.purity}%" else item.purity
                     val wtDisplay = if (item.stoneWeightGram > 0) "${String.format(Locale.getDefault(), "%.2f", item.approxWeight)}g - ${item.stoneWeightGram}g stone" else "${String.format(Locale.getDefault(), "%.2f", item.approxWeight)}g"
                     Text(
                         text = "  · Metal Value ($wtDisplay @ ₹${String.format(Locale.getDefault(), "%,.0f", item.agreedRate)}, $purityLabel)",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF5C5243)
+                        color = Color(0xFF5C5243),
+                        modifier = Modifier.weight(1f)
                     )
                     Text(
                         text = "₹${String.format(Locale.getDefault(), "%,.0f", metalValValue)}",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = Color(0xFF2C251C)
+                        color = Color(0xFF2C251C),
+                        textAlign = TextAlign.End
                     )
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     val labelText = if (isSilver) {
                          "  · Making Charges (Flat addition)"
@@ -1475,18 +1490,21 @@ fun BillingTicket(order: Order) {
                     Text(
                         text = labelText,
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF5C5243)
+                        color = Color(0xFF5C5243),
+                        modifier = Modifier.weight(1f)
                     )
                     Text(
                         text = "₹${String.format(Locale.getDefault(), "%,.0f", makingChargesAmount)}",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = Color(0xFF2C251C)
+                        color = Color(0xFF2C251C),
+                        textAlign = TextAlign.End
                     )
                 }
                 if (item.otherCharges > 0 || item.stoneWeightGram > 0) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         val stoneLabel = if (item.stoneWeightGram > 0) {
                             "  · Stones & Diamonds (${item.stoneWeightGram}g / ${item.stoneWeightCarat}ct)"
@@ -1496,28 +1514,33 @@ fun BillingTicket(order: Order) {
                         Text(
                             text = stoneLabel,
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF5C5243)
+                            color = Color(0xFF5C5243),
+                            modifier = Modifier.weight(1f)
                         )
                         Text(
                             text = "₹${String.format(Locale.getDefault(), "%,.0f", item.otherCharges)}",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = Color(0xFF2C251C)
+                            color = Color(0xFF2C251C),
+                            textAlign = TextAlign.End
                         )
                     }
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = "  Item #${index + 1} Subtotal",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = Color(0xFF5C5243)
+                        color = Color(0xFF5C5243),
+                        modifier = Modifier.weight(1f)
                     )
                     Text(
                         text = "₹${String.format(Locale.getDefault(), "%,.0f", itemTotal)}",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = Color(0xFF2C251C)
+                        color = Color(0xFF2C251C),
+                        textAlign = TextAlign.End
                     )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
@@ -1553,11 +1576,12 @@ fun BillingTicket(order: Order) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = "Specs Total Charges:", style = MaterialTheme.typography.bodySmall, color = Color(0xFF5C5243))
+                    Text(text = "Specs Total Charges:", style = MaterialTheme.typography.bodySmall, color = Color(0xFF5C5243), modifier = Modifier.weight(1f))
                     Text(
                         text = "₹${String.format(Locale.getDefault(), "%,.0f", unreducedGrandTotal)}",
                         style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                        color = Color(0xFF2C251C)
+                        color = Color(0xFF2C251C),
+                        textAlign = TextAlign.End
                     )
                 }
                 Row(
@@ -1565,10 +1589,11 @@ fun BillingTicket(order: Order) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = "Traded-In Exchanges Credit:", style = MaterialTheme.typography.bodySmall, color = Color(0xFF137333))
+                    Text(text = "Traded-In Exchanges Credit:", style = MaterialTheme.typography.bodySmall, color = Color(0xFF137333), modifier = Modifier.weight(1f))
                     Text(
                         text = "- ₹${String.format(Locale.getDefault(), "%,.0f", totalExchangeCredit)}",
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold, color = Color(0xFF137333))
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold, color = Color(0xFF137333)),
+                        textAlign = TextAlign.End
                     )
                 }
                 Spacer(modifier = Modifier.padding(vertical = 1.dp))
@@ -1580,11 +1605,12 @@ fun BillingTicket(order: Order) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = "Total Making Charges:", style = MaterialTheme.typography.bodySmall, color = Color(0xFF5C5243))
+                Text(text = "Total Making Charges:", style = MaterialTheme.typography.bodySmall, color = Color(0xFF5C5243), modifier = Modifier.weight(1f))
                 Text(
                     text = "₹${String.format(Locale.getDefault(), "%,.0f", totalMakingCharges)}",
                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                    color = Color(0xFF2C251C)
+                    color = Color(0xFF2C251C),
+                    textAlign = TextAlign.End
                 )
             }
             Row(
@@ -1592,11 +1618,12 @@ fun BillingTicket(order: Order) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = "Valuation of Net Req. Metal Fine:", style = MaterialTheme.typography.bodySmall, color = Color(0xFF5C5243))
+                Text(text = "Valuation of Net Req. Metal Fine:", style = MaterialTheme.typography.bodySmall, color = Color(0xFF5C5243), modifier = Modifier.weight(1f))
                 Text(
                     text = "₹${String.format(Locale.getDefault(), "%,.0f", netRequiredMetalFineValuation)}",
                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                    color = Color(0xFF2C251C)
+                    color = Color(0xFF2C251C),
+                    textAlign = TextAlign.End
                 )
             }
             Spacer(modifier = Modifier.padding(vertical = 1.dp))
@@ -1607,11 +1634,12 @@ fun BillingTicket(order: Order) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = "TOTAL ESTIMATED CHARGES", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Black), color = Color(0xFF2C251C))
+                Text(text = "TOTAL ESTIMATED CHARGES", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Black), color = Color(0xFF2C251C), modifier = Modifier.weight(1f))
                 Text(
                     text = "₹${String.format(Locale.getDefault(), "%,.0f", order.totalAmount)}",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace),
-                    color = Color(0xFF2C251C)
+                    color = Color(0xFF2C251C),
+                    textAlign = TextAlign.End
                 )
             }
 
@@ -1620,10 +1648,11 @@ fun BillingTicket(order: Order) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = "Advance Deposit Paid", style = MaterialTheme.typography.bodySmall, color = Color(0xFF856404))
+                Text(text = "Advance Deposit Paid", style = MaterialTheme.typography.bodySmall, color = Color(0xFF856404), modifier = Modifier.weight(1f))
                 Text(
                     text = "- ₹${String.format(Locale.getDefault(), "%,.0f", order.advancePaid)}",
-                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Black, color = Color(0xFF856404))
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Black, color = Color(0xFF856404)),
+                    textAlign = TextAlign.End
                 )
             }
 
@@ -3423,60 +3452,67 @@ fun AddEditOrderDialog(
                             ) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Grand Total Specs:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("₹${String.format(Locale.getDefault(), "%,.2f", computedOverallTotal)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                                    Text("Grand Total Specs:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                                    Text("₹${String.format(Locale.getDefault(), "%,.2f", computedOverallTotal)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), textAlign = TextAlign.End)
                                 }
                                 val stoneTotalWt = itemsList.sumOf { it.stoneWeightGram.toDoubleOrNull() ?: 0.0 }
                                 val stoneTotalCharges = itemsList.sumOf { it.otherCharges.toDoubleOrNull() ?: 0.0 }
                                 if (stoneTotalWt > 0 || stoneTotalCharges > 0) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text("Included Stones:", style = MaterialTheme.typography.bodySmall, color = Color(0xFFC5A059))
-                                        Text("${String.format(Locale.getDefault(), "%.2f", stoneTotalWt)}g / ₹${String.format(Locale.getDefault(), "%,.0f", stoneTotalCharges)}", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold))
+                                        Text("Included Stones:", style = MaterialTheme.typography.bodySmall, color = Color(0xFFC5A059), modifier = Modifier.weight(1f))
+                                        Text("${String.format(Locale.getDefault(), "%.2f", stoneTotalWt)}g / ₹${String.format(Locale.getDefault(), "%,.0f", stoneTotalCharges)}", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), textAlign = TextAlign.End)
                                     }
                                 }
                                 if (totalExchangeCredit > 0) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text("Exchange Valuation Credit:", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF137333))
-                                        Text("- ₹${String.format(Locale.getDefault(), "%,.2f", totalExchangeCredit)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold, color = Color(0xFF137333)))
+                                        Text("Exchange Valuation Credit:", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF137333), modifier = Modifier.weight(1f))
+                                        Text("- ₹${String.format(Locale.getDefault(), "%,.2f", totalExchangeCredit)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold, color = Color(0xFF137333)), textAlign = TextAlign.End)
                                     }
                                 }
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 2.dp))
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Total Making Charges:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("₹${String.format(Locale.getDefault(), "%,.2f", liveTotalMakingCharges)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                                    Text("Total Making Charges:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                                    Text("₹${String.format(Locale.getDefault(), "%,.2f", liveTotalMakingCharges)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), textAlign = TextAlign.End)
                                 }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Valuation of Net Req. Metal Fine:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("₹${String.format(Locale.getDefault(), "%,.2f", liveNetRequiredMetalFineValuation)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                                    Text("Valuation of Net Req. Metal Fine:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                                    Text("₹${String.format(Locale.getDefault(), "%,.2f", liveNetRequiredMetalFineValuation)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), textAlign = TextAlign.End)
                                 }
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 2.dp))
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Net Payable Amount:", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
-                                    Text("₹${String.format(Locale.getDefault(), "%,.2f", finalPayableAmount)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                                    Text("Net Payable Amount:", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                                    Text("₹${String.format(Locale.getDefault(), "%,.2f", finalPayableAmount)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), textAlign = TextAlign.End)
                                 }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Deposit Advance Paid:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("- ₹${String.format(Locale.getDefault(), "%,.2f", givenDeposit)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                                    Text("Deposit Advance Paid:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                                    Text("- ₹${String.format(Locale.getDefault(), "%,.2f", givenDeposit)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), textAlign = TextAlign.End)
                                 }
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f), modifier = Modifier.padding(vertical = 4.dp))
                                 Row(

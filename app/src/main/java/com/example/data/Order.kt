@@ -33,11 +33,14 @@ data class OrderItem(
     val id: String = UUID.randomUUID().toString(),
     val jewelleryType: String = "",
     val metalType: String = "Gold",
-    val purity: String = "91.6",
+    val purity: String = "", // Removed preset 91.6
     val approxWeight: Double = 0.0,
+    val stoneWeightCarat: Double = 0.0,
+    val stoneWeightGram: Double = 0.0,
     val agreedRate: Double = 0.0,
     val makingCharges: Double = 0.0,
     val otherCharges: Double = 0.0,
+    val showStoneOtherCharges: Boolean = false,
     val status: String = "Pending"
 ) : Serializable
 
@@ -101,7 +104,7 @@ fun Order.getItems(): List<OrderItem> {
                 id = "primary",
                 jewelleryType = this.jewelleryType ?: "",
                 metalType = this.metalType ?: "Gold",
-                purity = this.purity ?: "91.6",
+                purity = if (this.purity == "91.6") "" else (this.purity ?: ""), // Clean old 91.6
                 approxWeight = this.approxWeight ?: 0.0,
                 agreedRate = this.agreedRate ?: 0.0,
                 makingCharges = this.makingCharges ?: 0.0,
@@ -120,11 +123,14 @@ fun Order.getItems(): List<OrderItem> {
                     id = obj.optString("id", UUID.randomUUID().toString()),
                     jewelleryType = obj.optString("jewelleryType", ""),
                     metalType = obj.optString("metalType", "Gold"),
-                    purity = obj.optString("purity", "91.6"),
+                    purity = obj.optString("purity", ""),
                     approxWeight = obj.optDouble("approxWeight", 0.0),
+                    stoneWeightCarat = obj.optDouble("stoneWeightCarat", 0.0),
+                    stoneWeightGram = obj.optDouble("stoneWeightGram", 0.0),
                     agreedRate = obj.optDouble("agreedRate", 0.0),
                     makingCharges = obj.optDouble("makingCharges", 0.0),
                     otherCharges = obj.optDouble("otherCharges", 0.0),
+                    showStoneOtherCharges = obj.optBoolean("showStoneOtherCharges", false),
                     status = obj.optString("status", "Pending")
                 )
             )
@@ -144,9 +150,12 @@ fun serializeItems(items: List<OrderItem>): String {
             put("metalType", item.metalType)
             put("purity", item.purity)
             put("approxWeight", item.approxWeight)
+            put("stoneWeightCarat", item.stoneWeightCarat)
+            put("stoneWeightGram", item.stoneWeightGram)
             put("agreedRate", item.agreedRate)
             put("makingCharges", item.makingCharges)
             put("otherCharges", item.otherCharges)
+            put("showStoneOtherCharges", item.showStoneOtherCharges)
             put("status", item.status)
         }
         array.put(obj)

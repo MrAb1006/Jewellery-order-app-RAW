@@ -5,8 +5,13 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.data.Order
 import com.example.data.DeletedOrder
-import com.example.data.toDeletedOrder
+import com.example.data.Karigar
+import com.example.data.KarigarOrder
+import com.example.data.KarigarOrderMetrics
+import com.example.data.DeletedKarigarOrder
+import com.example.data.toDeleted
 import com.example.data.toOrder
+import com.example.data.toDeletedOrder
 import com.example.data.OrderRepository
 import com.example.data.getItems
 import kotlinx.coroutines.flow.*
@@ -23,10 +28,111 @@ class OrderViewModel(private val repository: OrderRepository) : ViewModel() {
                 val sixtyDaysMs = 60L * 24L * 60L * 60L * 1000L
                 val cutoffTime = System.currentTimeMillis() - sixtyDaysMs
                 repository.deleteOldDeleted(cutoffTime)
+                repository.deleteOldDeletedKarigars(cutoffTime)
             } catch (e: Exception) {
                 android.util.Log.e("OrderViewModel", "Failed to clean old activity log entries on launch", e)
             }
         }
+    }
+
+    // Karigar State
+    private val _karigarSearchQuery = MutableStateFlow("")
+    val karigarSearchQuery: StateFlow<String> = _karigarSearchQuery.asStateFlow()
+
+    private val _karigarStatusFilter = MutableStateFlow("all")
+    val karigarStatusFilter: StateFlow<String> = _karigarStatusFilter.asStateFlow()
+
+    private val _karigarMetalFilter = MutableStateFlow("all")
+    val karigarMetalFilter: StateFlow<String> = _karigarMetalFilter.asStateFlow()
+
+    private val _selectedKarigarFilter = MutableStateFlow<Int?>(null)
+    val selectedKarigarFilter: StateFlow<Int?> = _selectedKarigarFilter.asStateFlow()
+
+    val karigars: StateFlow<List<Karigar>> = repository.allKarigars
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val filteredKarigarOrders: StateFlow<List<KarigarOrder>> = combine(
+        repository.allKarigarOrders,
+        _karigarSearchQuery,
+        _karigarStatusFilter,
+        _karigarMetalFilter,
+        _selectedKarigarFilter
+    ) { orders, query, status, metal, karigarId ->
+        orders.filter { order ->
+            val matchesQuery = query.isBlank() || 
+                order.orderNo.contains(query, ignoreCase = true) ||
+                order.karigarName.contains(query, ignoreCase = true) ||
+                order.itemsJson.contains(query, ignoreCase = true) ||
+                order.phone.contains(query)
+            
+            val matchesStatus = status == "all" || order.status == status
+            val matchesMetal = metal == "all" || order.itemsJson.contains("\"metalType\":\"$metal\"", ignoreCase = true)
+            val matchesKarigar = karigarId == null || order.karigarId == karigarId
+            
+            matchesQuery && matchesStatus && matchesMetal && matchesKarigar
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val karigarBalances: StateFlow<List<KarigarOrderMetrics>> = combine(
+        karigars,
+        repository.allKarigarOrders
+    ) { currentKarigars, orders ->
+        currentKarigars.map { karigar ->
+            val kOrders = orders.filter { it.karigarId == karigar.id && it.status != "delivered" }
+            KarigarOrderMetrics(
+                totalRequired = kOrders.sumOf { it.totalFineRequired },
+                totalIssued = kOrders.sumOf { it.totalFineIssued },
+                totalPending = kOrders.sumOf { it.totalFinePending },
+                activeOrders = kOrders.size
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun setKarigarSearchQuery(query: String) { _karigarSearchQuery.value = query }
+    fun setKarigarStatusFilter(status: String) { _karigarStatusFilter.value = status }
+    fun setKarigarMetalFilter(metal: String) { _karigarMetalFilter.value = metal }
+    fun setSelectedKarigarFilter(id: Int?) { _selectedKarigarFilter.value = id }
+
+    fun addKarigar(karigar: Karigar) = viewModelScope.launch { repository.insertKarigar(karigar) }
+    fun deleteKarigar(karigar: Karigar) = viewModelScope.launch { repository.deleteKarigar(karigar) }
+
+    fun addKarigarOrder(order: KarigarOrder) = viewModelScope.launch { repository.insertKarigarOrder(order) }
+    fun updateKarigarOrder(order: KarigarOrder) = viewModelScope.launch { repository.updateKarigarOrder(order) }
+    fun deleteKarigarOrder(order: KarigarOrder) = viewModelScope.launch { 
+        try {
+            repository.insertDeletedKarigar(order.toDeleted())
+        } catch (e: Exception) { e.printStackTrace() }
+        repository.deleteKarigarOrder(order) 
+    }
+    fun deleteKarigarOrderById(id: Int) = viewModelScope.launch { 
+        try {
+            repository.allKarigarOrders.first().find { it.id == id }?.let { order ->
+                repository.insertDeletedKarigar(order.toDeleted())
+            }
+        } catch (e: Exception) { e.printStackTrace() }
+        repository.deleteKarigarOrderById(id) 
+    }
+
+    val deletedKarigarOrders: StateFlow<List<DeletedKarigarOrder>> = repository.allDeletedKarigarOrders
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun restoreDeletedKarigarOrder(deletedOrder: DeletedKarigarOrder) = viewModelScope.launch {
+        try {
+            repository.insertKarigarOrder(deletedOrder.toOrder())
+            repository.deleteDeletedKarigarById(deletedOrder.id)
+        } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    fun permanentlyDeleteDeletedKarigarOrder(id: Int) = viewModelScope.launch {
+        try {
+            repository.deleteDeletedKarigarById(id)
+        } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    fun clearAllDeletedKarigarOrders() = viewModelScope.launch {
+        try {
+            repository.deleteAllDeletedKarigars()
+        } catch (e: Exception) { e.printStackTrace() }
     }
 
     private val _searchQuery = MutableStateFlow("")

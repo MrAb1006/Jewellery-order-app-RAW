@@ -67,6 +67,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.*
+import com.example.ui.BidirectionalCalculatorDialog
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -89,23 +90,41 @@ fun DashboardScreen(
     val selectedOrderForEdit = orders.find { it.id == selectedOrderForEditId }
     
     val deletedOrders by viewModel.deletedOrders.collectAsStateWithLifecycle()
+    val deletedKarigarOrders by viewModel.deletedKarigarOrders.collectAsStateWithLifecycle()
     var showActivityDialog by rememberSaveable { mutableStateOf(false) }
+    var showCalculatorDialog by rememberSaveable { mutableStateOf(false) }
+    var showBackupDialog by rememberSaveable { mutableStateOf(false) }
+    var showRestoreDialog by rememberSaveable { mutableStateOf(false) }
+    var currentView by rememberSaveable { mutableStateOf("main") } // "main" or "karigar"
 
-    // Launcher for creating a backup file (export)
-    val exportLauncher = rememberLauncherForActivityResult(
+    if (currentView == "karigar") {
+        KarigarDashboardScreen(
+            viewModel = viewModel,
+            onBack = { currentView = "main" }
+        )
+        return
+    }
+
+    // Master Export Logic
+    var backupCustomer by remember { mutableStateOf(false) }
+    var backupKarigar by remember { mutableStateOf(false) }
+
+    val masterExportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
         uri?.let {
             try {
-                val json = serializeOrders(orders)
-                val os = context.contentResolver.openOutputStream(it)
-                if (os != null) {
+                val masterObj = JSONObject()
+                if (backupCustomer) {
+                    masterObj.put("customerOrders", JSONArray(serializeOrders(orders)))
+                }
+                if (backupKarigar) {
+                    masterObj.put("karigarOrders", JSONArray(serializeKarigarOrders(viewModel.filteredKarigarOrders.value)))
+                }
+                val json = masterObj.toString(4)
+                context.contentResolver.openOutputStream(it)?.use { os ->
                     os.write(json.toByteArray())
-                    os.flush()
-                    os.close()
-                    Toast.makeText(context, "Backup exported successfully to file system!", Toast.LENGTH_LONG).show()
-                } else {
-                    Toast.makeText(context, "Export failed: cannot write stream", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Backup exported successfully!", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
                 Toast.makeText(context, "Export failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
@@ -113,31 +132,27 @@ fun DashboardScreen(
         }
     }
 
-    // Launcher for opening a backup file to restore (import)
-    val importLauncher = rememberLauncherForActivityResult(
+    val masterImportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let {
             try {
-                val isStream = context.contentResolver.openInputStream(it)
-                if (isStream != null) {
-                    val bytes = isStream.readBytes()
-                    isStream.close()
-                    val jsonStr = String(bytes)
-                    val restoredOrders = deserializeOrders(jsonStr)
-                    if (restoredOrders.isNotEmpty()) {
-                        restoredOrders.forEach { order ->
-                            viewModel.addOrder(order.copy(id = 0)) // Insert as new copy
-                        }
-                        Toast.makeText(context, "Successfully restored ${restoredOrders.size} orders!", Toast.LENGTH_LONG).show()
-                    } else {
-                        Toast.makeText(context, "Restore failed: File is empty or in an invalid format.", Toast.LENGTH_LONG).show()
+                context.contentResolver.openInputStream(it)?.use { isStream ->
+                    val jsonStr = String(isStream.readBytes())
+                    val masterObj = JSONObject(jsonStr)
+                    
+                    if (backupCustomer && masterObj.has("customerOrders")) {
+                        val restored = deserializeOrders(masterObj.getJSONArray("customerOrders").toString())
+                        restored.forEach { o -> viewModel.addOrder(o.copy(id = 0)) }
                     }
-                } else {
-                    Toast.makeText(context, "Restore failed: cannot read stream", Toast.LENGTH_LONG).show()
+                    if (backupKarigar && masterObj.has("karigarOrders")) {
+                        val restored = deserializeKarigarOrders(masterObj.getJSONArray("karigarOrders").toString())
+                        restored.forEach { o -> viewModel.addKarigarOrder(o.copy(id = 0)) }
+                    }
+                    Toast.makeText(context, "Database restored successfully!", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Restore failed: Invalid back-up format. Error: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "Restore failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -178,7 +193,7 @@ fun DashboardScreen(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "SUHAS JEWELLERS · v. 0.2.4",
+                        text = "SUHAS JEWELLERS · v. 0.2.5",
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.5.sp,
@@ -264,20 +279,36 @@ fun DashboardScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text("Backup Database") },
-                                leadingIcon = { Icon(Icons.Default.Upload, contentDescription = null, tint = Color(0xFFC5A059)) },
+                                leadingIcon = { Icon(Icons.Default.Backup, null, tint = Color(0xFFC5A059)) },
                                 onClick = {
                                     showBackupMenu = false
-                                    exportLauncher.launch("suhas_jewellers_backup.json")
+                                    showBackupDialog = true
                                 }
                             )
                             DropdownMenuItem(
                                 text = { Text("Restore Database") },
-                                leadingIcon = { Icon(Icons.Default.Download, contentDescription = null, tint = Color(0xFFC5A059)) },
+                                leadingIcon = { Icon(Icons.Default.Restore, null, tint = Color(0xFFC5A059)) },
                                 onClick = {
                                     showBackupMenu = false
-                                    importLauncher.launch(arrayOf("application/json", "application/octet-stream", "*/*"))
+                                    showRestoreDialog = true
                                 }
                             )
+                    DropdownMenuItem(
+                        text = { Text("Karigar Section") },
+                        leadingIcon = { Icon(Icons.Default.Engineering, contentDescription = null, tint = Color(0xFFC5A059)) },
+                        onClick = {
+                            showBackupMenu = false
+                            currentView = "karigar"
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Jewellery Calculator") },
+                        leadingIcon = { Icon(Icons.Default.Calculate, contentDescription = null, tint = Color(0xFFC5A059)) },
+                        onClick = {
+                            showBackupMenu = false
+                            showCalculatorDialog = true
+                        }
+                    )
                         }
                     }
                 }
@@ -545,21 +576,62 @@ fun DashboardScreen(
     }
 
     if (showActivityDialog) {
-        ActivityLogDialog(
-            deletedOrders = deletedOrders,
+        UnifiedActivityLogDialog(
+            deletedCustomerOrders = deletedOrders,
+            deletedKarigarOrders = deletedKarigarOrders,
             onDismiss = { showActivityDialog = false },
-            onRestore = { item ->
+            onRestoreCustomer = { item ->
                 viewModel.restoreDeletedOrder(item)
                 Toast.makeText(context, "Order restored to system!", Toast.LENGTH_SHORT).show()
             },
-            onDeletePermanently = { id ->
+            onDeleteCustomerPermanently = { id ->
                 viewModel.permanentlyDeleteDeletedOrder(id)
                 Toast.makeText(context, "Permanently purged from system memory.", Toast.LENGTH_SHORT).show()
             },
-            onClearAll = {
-                viewModel.clearAllDeletedOrders()
-                Toast.makeText(context, "Activity Bin successfully purged.", Toast.LENGTH_SHORT).show()
+            onRestoreKarigar = { item ->
+                viewModel.restoreDeletedKarigarOrder(item)
+                Toast.makeText(context, "Karigar Order restored!", Toast.LENGTH_SHORT).show()
+            },
+            onDeleteKarigarPermanently = { id ->
+                viewModel.permanentlyDeleteDeletedKarigarOrder(id)
+                Toast.makeText(context, "Permanently deleted!", Toast.LENGTH_SHORT).show()
+            },
+            onClearAll = { cust, kari ->
+                if (cust) viewModel.clearAllDeletedOrders()
+                if (kari) viewModel.clearAllDeletedKarigarOrders()
+                Toast.makeText(context, "Activity Bin purged.", Toast.LENGTH_SHORT).show()
             }
+        )
+    }
+
+    if (showBackupDialog) {
+        SelectiveBackupDialog(
+            onDismiss = { showBackupDialog = false },
+            onConfirm = { cust, kari ->
+                backupCustomer = cust
+                backupKarigar = kari
+                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                masterExportLauncher.launch("SJ_backup_$timestamp.json")
+                showBackupDialog = false
+            }
+        )
+    }
+
+    if (showRestoreDialog) {
+        SelectiveRestoreDialog(
+            onDismiss = { showRestoreDialog = false },
+            onConfirm = { cust, kari ->
+                backupCustomer = cust
+                backupKarigar = kari
+                masterImportLauncher.launch(arrayOf("application/json"))
+                showRestoreDialog = false
+            }
+        )
+    }
+
+    if (showCalculatorDialog) {
+        BidirectionalCalculatorDialog(
+            onDismiss = { showCalculatorDialog = false }
         )
     }
 }
@@ -995,7 +1067,7 @@ fun OrderDetailDialog(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                "This will permanently remove Samantha's records and estimates from the Aurelia database. This action is irreversible.",
+                                "This will permanently remove this record and estimates from the database. This action is irreversible.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
                             )
@@ -2062,11 +2134,14 @@ data class EditableItem(
     val id: String = UUID.randomUUID().toString(),
     val jewelleryType: String = "Ring",
     val metalType: String = "Gold",
-    val purity: String = "91.6",
+    val purity: String = "",
     val approxWeight: String = "",
+    val stoneWeightCarat: String = "",
+    val stoneWeightGram: String = "",
     val agreedRate: String = "",
     val makingCharges: String = "0",
     val otherCharges: String = "0",
+    val showStoneOtherCharges: Boolean = false,
     val status: String = "Pending"
 ) : Serializable
 
@@ -2075,7 +2150,7 @@ data class EditableOldItem(
     val itemName: String = "",
     val metalType: String = "Gold",
     val approxWeight: String = "",
-    val purity: String = "91.6",
+    val purity: String = "",
     val agreedRate: String = ""
 ) : Serializable
 
@@ -2088,9 +2163,12 @@ fun serializeEditableItems(list: List<EditableItem>): String {
         obj.put("metalType", item.metalType)
         obj.put("purity", item.purity)
         obj.put("approxWeight", item.approxWeight)
+        obj.put("stoneWeightCarat", item.stoneWeightCarat)
+        obj.put("stoneWeightGram", item.stoneWeightGram)
         obj.put("agreedRate", item.agreedRate)
         obj.put("makingCharges", item.makingCharges)
         obj.put("otherCharges", item.otherCharges)
+        obj.put("showStoneOtherCharges", item.showStoneOtherCharges)
         obj.put("status", item.status)
         arr.put(obj)
     }
@@ -2109,11 +2187,14 @@ fun deserializeEditableItems(json: String): List<EditableItem> {
                     id = obj.optString("id", UUID.randomUUID().toString()),
                     jewelleryType = obj.optString("jewelleryType", "Ring"),
                     metalType = obj.optString("metalType", "Gold"),
-                    purity = obj.optString("purity", "91.6"),
+                    purity = obj.optString("purity", ""),
                     approxWeight = obj.optString("approxWeight", ""),
+                    stoneWeightCarat = obj.optString("stoneWeightCarat", ""),
+                    stoneWeightGram = obj.optString("stoneWeightGram", ""),
                     agreedRate = obj.optString("agreedRate", ""),
                     makingCharges = obj.optString("makingCharges", "0"),
                     otherCharges = obj.optString("otherCharges", "0"),
+                    showStoneOtherCharges = obj.optBoolean("showStoneOtherCharges", false),
                     status = obj.optString("status", "Pending")
                 )
             )
@@ -2206,19 +2287,22 @@ fun calculateOldItemValuationEditable(oldItem: EditableOldItem, itemsList: List<
 
 fun calculateItemTotal(item: EditableItem): Double {
     val wt = item.approxWeight.toDoubleOrNull() ?: 0.0
+    val swGram = item.stoneWeightGram.toDoubleOrNull() ?: 0.0
+    val effectiveWt = (wt - swGram).coerceAtLeast(0.0)
+    
     val rate = item.agreedRate.toDoubleOrNull() ?: 0.0
     val mak = item.makingCharges.toDoubleOrNull() ?: 0.0
     val other = item.otherCharges.toDoubleOrNull() ?: 0.0
     val purityProfile = item.purity.toDoubleOrNull() ?: 100.0
     val purityPercent = purityProfile / 100.0
 
-    val rawCost = wt * rate * purityPercent
+    val rawCost = effectiveWt * rate * purityPercent
     val isSilver = item.metalType.equals("Silver", ignoreCase = true)
     val isGold = item.metalType.equals("Gold", ignoreCase = true)
     val makVal = if (isSilver) {
         mak
     } else if (isGold) {
-        wt * rate * (mak / 100.0)
+        effectiveWt * rate * (mak / 100.0)
     } else {
         rawCost * (mak / 100.0)
     }
@@ -2227,19 +2311,21 @@ fun calculateItemTotal(item: EditableItem): Double {
 
 fun calculateModelItemTotal(item: OrderItem): Double {
     val wt = item.approxWeight
+    val effectiveWt = (wt - item.stoneWeightGram).coerceAtLeast(0.0)
+    
     val rate = item.agreedRate
     val mak = item.makingCharges
     val other = item.otherCharges
     val purityProfile = item.purity.toDoubleOrNull() ?: 100.0
     val purityPercent = purityProfile / 100.0
 
-    val rawCost = wt * rate * purityPercent
+    val rawCost = effectiveWt * rate * purityPercent
     val isSilver = item.metalType.equals("Silver", ignoreCase = true)
     val isGold = item.metalType.equals("Gold", ignoreCase = true)
     val makVal = if (isSilver) {
         mak
     } else if (isGold) {
-        wt * rate * (mak / 100.0)
+        effectiveWt * rate * (mak / 100.0)
     } else {
         rawCost * (mak / 100.0)
     }
@@ -2524,11 +2610,11 @@ fun AddEditOrderDialog(
                                                         text = { Text(option) },
                                                         onClick = {
                                                             val defaultPurity = when (option) {
-                                                                "Gold" -> "91.6"
-                                                                "Silver" -> "92.5"
-                                                                "Platinum" -> "95.0"
-                                                                "Rose Gold" -> "75.0"
-                                                                else -> "91.6"
+                                                                "Gold" -> ""
+                                                                "Silver" -> ""
+                                                                "Platinum" -> ""
+                                                                "Rose Gold" -> ""
+                                                                else -> ""
                                                             }
                                                             updateItemSafe(index) {
                                                                 it.copy(
@@ -2629,11 +2715,63 @@ fun AddEditOrderDialog(
                                         }
                                     }
 
-                                    // Fourth Row: Other Charges & Status
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
+                                    // Fourth Row: Stone Toggle
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(
+                                            checked = itemState.showStoneOtherCharges,
+                                            onCheckedChange = { newVal ->
+                                                updateItemSafe(index) { it.copy(showStoneOtherCharges = newVal) }
+                                            }
+                                        )
+                                        Text("Include Stone / Other Charges", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                                    }
+
+                                    if (itemState.showStoneOtherCharges) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            OutlinedTextField(
+                                                value = itemState.stoneWeightCarat,
+                                                onValueChange = { newVal ->
+                                                    val gram = newVal.toDoubleOrNull()?.let { it * 0.2 } ?: 0.0
+                                                    updateItemSafe(index) {
+                                                        it.copy(
+                                                            stoneWeightCarat = newVal,
+                                                            stoneWeightGram = if (gram > 0) String.format(Locale.getDefault(), "%.3f", gram) else ""
+                                                        )
+                                                    }
+                                                },
+                                                label = { Text("Stone Wt (Carat)") },
+                                                placeholder = { Text("1.5") },
+                                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                                shape = RoundedCornerShape(12.dp),
+                                                singleLine = true,
+                                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
+                                                modifier = Modifier.weight(1f)
+                                            )
+
+                                            OutlinedTextField(
+                                                value = itemState.stoneWeightGram,
+                                                onValueChange = { newVal ->
+                                                    val carat = newVal.toDoubleOrNull()?.let { it / 0.2 } ?: 0.0
+                                                    updateItemSafe(index) {
+                                                        it.copy(
+                                                            stoneWeightGram = newVal,
+                                                            stoneWeightCarat = if (carat > 0) String.format(Locale.getDefault(), "%.2f", carat) else ""
+                                                        )
+                                                    }
+                                                },
+                                                label = { Text("Stone Wt (Gram)") },
+                                                placeholder = { Text("0.3") },
+                                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                                shape = RoundedCornerShape(12.dp),
+                                                singleLine = true,
+                                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+
                                         OutlinedTextField(
                                             value = itemState.otherCharges,
                                             onValueChange = { value ->
@@ -2645,47 +2783,48 @@ fun AddEditOrderDialog(
                                             shape = RoundedCornerShape(12.dp),
                                             singleLine = true,
                                             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFC5A059)),
-                                            modifier = Modifier.weight(1f)
+                                            modifier = Modifier.fillMaxWidth()
                                         )
+                                    }
 
-                                        // Status dropdown with highly responsive click wrapper
-                                        var expandedStatus by remember { mutableStateOf(false) }
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .clickable { expandedStatus = true }
+                                    // Fifth Row: Status
+                                    // Status dropdown with highly responsive click wrapper
+                                    var expandedStatus by remember { mutableStateOf(false) }
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { expandedStatus = true }
+                                    ) {
+                                        OutlinedTextField(
+                                            value = itemState.status,
+                                            onValueChange = {},
+                                            readOnly = true,
+                                            enabled = false,
+                                            label = { Text("Delivery Status") },
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                                                disabledBorderColor = MaterialTheme.colorScheme.outline,
+                                                disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                            ),
+                                            trailingIcon = {
+                                                Icon(Icons.Default.ArrowDropDown, contentDescription = "Show statuses")
+                                            },
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                        DropdownMenu(
+                                            expanded = expandedStatus,
+                                            onDismissRequest = { expandedStatus = false }
                                         ) {
-                                            OutlinedTextField(
-                                                value = itemState.status,
-                                                onValueChange = {},
-                                                readOnly = true,
-                                                enabled = false,
-                                                label = { Text("Delivery Status") },
-                                                shape = RoundedCornerShape(12.dp),
-                                                colors = OutlinedTextFieldDefaults.colors(
-                                                    disabledTextColor = MaterialTheme.colorScheme.onSurface,
-                                                    disabledBorderColor = MaterialTheme.colorScheme.outline,
-                                                    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
-                                                ),
-                                                trailingIcon = {
-                                                    Icon(Icons.Default.ArrowDropDown, contentDescription = "Show statuses")
-                                                },
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                            DropdownMenu(
-                                                expanded = expandedStatus,
-                                                onDismissRequest = { expandedStatus = false }
-                                            ) {
-                                                listOf("Pending", "In Progress", "Completed", "Delivered").forEach { statusOpt ->
-                                                    DropdownMenuItem(
-                                                        text = { Text(statusOpt) },
-                                                        onClick = {
-                                                            updateItemSafe(index) { it.copy(status = statusOpt) }
-                                                            expandedStatus = false
-                                                        }
-                                                    )
-                                                }
+                                            listOf("Pending", "In Progress", "Completed", "Delivered").forEach { statusOpt ->
+                                                DropdownMenuItem(
+                                                    text = { Text(statusOpt) },
+                                                    onClick = {
+                                                        updateItemSafe(index) { it.copy(status = statusOpt) }
+                                                        expandedStatus = false
+                                                    }
+                                                )
                                             }
                                         }
                                     }

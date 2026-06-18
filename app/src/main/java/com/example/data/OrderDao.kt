@@ -45,4 +45,48 @@ interface OrderDao {
 
     @Query("DELETE FROM deleted_orders")
     suspend fun deleteAllDeletedOrders()
+
+    // Karigar Section
+    @Query("SELECT * FROM karigars ORDER BY name ASC")
+    fun getAllKarigars(): Flow<List<Karigar>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertKarigar(karigar: Karigar): Long
+
+    @Update
+    suspend fun updateKarigar(karigar: Karigar)
+
+    @Delete
+    suspend fun deleteKarigar(karigar: Karigar)
+
+    @Query("SELECT * FROM karigar_orders ORDER BY orderDate DESC")
+    fun getAllKarigarOrders(): Flow<List<KarigarOrder>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertKarigarOrder(order: KarigarOrder): Long
+
+    @Update
+    suspend fun updateKarigarOrder(order: KarigarOrder)
+
+    @Delete
+    suspend fun deleteKarigarOrder(order: KarigarOrder)
+
+    @Query("DELETE FROM karigar_orders WHERE id = :id")
+    suspend fun deleteKarigarOrderById(id: Int)
+
+    // Recycle Bin for Karigars
+    @Query("SELECT * FROM deleted_karigar_orders ORDER BY deletedAt DESC")
+    fun getAllDeletedKarigarOrders(): Flow<List<DeletedKarigarOrder>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDeletedKarigarOrder(order: DeletedKarigarOrder): Long
+
+    @Query("DELETE FROM deleted_karigar_orders WHERE id = :id")
+    suspend fun deleteDeletedKarigarOrderById(id: Int)
+
+    @Query("DELETE FROM deleted_karigar_orders")
+    suspend fun deleteAllDeletedKarigarOrders()
+
+    @Query("DELETE FROM deleted_karigar_orders WHERE deletedAt < :cutoffTime")
+    suspend fun deleteOldDeletedKarigarOrders(cutoffTime: Long)
 }

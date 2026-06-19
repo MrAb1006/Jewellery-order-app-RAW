@@ -42,6 +42,8 @@ fun BidirectionalCalculatorDialog(onDismiss: () -> Unit) {
                 Spacer(modifier = Modifier.height(12.dp))
                 CalculatorField("Purity (%)", state.fields.purity, { onChange("purity", it) })
                 Spacer(modifier = Modifier.height(12.dp))
+                CalculatorField("Fine (g) [Gross * Purity]", state.fields.fineWt, { onChange("fineWt", it) })
+                Spacer(modifier = Modifier.height(12.dp))
                 CalculatorField("Rate per Gram (₹)", state.fields.ratePerGram, { onChange("ratePerGram", it) })
                 Spacer(modifier = Modifier.height(12.dp))
                 CalculatorField("Total Price (₹)", state.fields.totalPrice, { onChange("totalPrice", it) })

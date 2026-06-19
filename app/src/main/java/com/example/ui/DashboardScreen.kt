@@ -361,7 +361,7 @@ fun DashboardScreen(
                         ),
                         modifier = Modifier
                             .weight(1f)
-                            .height(44.dp)
+                            .height(50.dp)
                             .testTag("search_input"),
                         singleLine = true
                     )

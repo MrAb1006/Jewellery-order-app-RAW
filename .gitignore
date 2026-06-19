@@ -1,19 +1,38 @@
-*.iml
-.gradle
-.kotlin
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-!/app/build/outputs/apk/debug/app-debug.apk
-/captures
-.externalNativeBuild
-.cxx
-local.properties
-.env
-debug.keystore
+I have a clear understanding of the logic required for your Gold and Silver strong room management app. Here is the detailed plan:
+
+### Application Architecture
+- **Tech Stack:** React + Vite + Tailwind CSS (for a professional, clean UI).
+- **State Management:** I will use a centralized state to manage Gold and Silver separately, ensuring the toggle switches the entire view context.
+- **Data Structure:** Each metal type (Gold/Silver) will have three primary stores:
+    1. **Mod (Fine):** List of items bought.
+    2. **Required Fine:** List of items sold (representing the "debt" or amount needed to be fulfilled).
+    3. **Fine Available:** Direct fine additions.
+
+### Functional Logic
+1. **Mod (Fine) Section:**
+   - **Input Form:** Item Name, Gross Weight, Purity (%), and Rate.
+   - **Calculation:** `Fine Weight = Gross Weight * (Purity / 100)`.
+   - **Gross Weight Tracker:** A running total of all gross weights added to the Mod section.
+   - **Buying Logic:** When an item is added here, its fine weight will be subtracted from the **Required Fine** section (if any exists).
+
+2. **Required Fine Section:**
+   - **Selling Logic:** When you sell an item, its fine weight is registered here.
+   - **Tracking:** This section keeps track of the total fine weight you owe/need.
+
+3. **Fine Available Section:**
+   - A simple interface to add "Direct Fine" weight to your inventory.
+
+### UI/UX Design
+- **Global Toggle:** A prominent Gold/Silver switch at the top.
+- **Three-Column/Section Layout:** Clear visual separation between Mod, Required Fine, and Fine Available.
+- **Real-time Totals:** Total Fine and Total Gross Weight displayed prominently in each section.
+
+### Implementation Steps
+1. Initialize Vite React project.
+2. Setup Tailwind CSS for styling.
+3. Create a `useVaultStore` hook or context to manage the logic for Gold and Silver.
+4. Build the Item Form with automatic fine weight calculation.
+5. Implement the three sections with the specific buy/sell logic described.
+6. Add persistence using `localStorage` so your data isn't lost on refresh.
+
+Does this plan accurately capture your requirements? If so, please **toggle to Act mode** and I will begin the implementation.

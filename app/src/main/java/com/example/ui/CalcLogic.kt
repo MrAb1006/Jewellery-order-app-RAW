@@ -7,7 +7,7 @@ enum class Metal { GOLD, SILVER }
 data class CalcFields(
     val grossWt: String = "",
     val purity: String = "",       // in %, e.g. 91.6 for 22K gold
-    val fineWt: String = "",       // always auto-derived, never user-entered
+    val fineWt: String = "",       
     val ratePerGram: String = "",
     val totalPrice: String = ""
 )
@@ -15,9 +15,9 @@ data class CalcFields(
 data class UserSet(
     val grossWt: Boolean = false,
     val purity: Boolean = false,
+    val fineWt: Boolean = false,
     val ratePerGram: Boolean = false,
     val totalPrice: Boolean = false
-    // fineWt intentionally excluded — it is always derived
 )
 
 data class CalcState(
@@ -61,6 +61,7 @@ fun recalc(
     var s = when (name) {
         "grossWt"     -> fields.copy(grossWt     = value)
         "purity"      -> fields.copy(purity       = value)
+        "fineWt"      -> fields.copy(fineWt       = value)
         "ratePerGram" -> fields.copy(ratePerGram  = value)
         "totalPrice"  -> fields.copy(totalPrice   = value)
         else          -> fields
@@ -68,6 +69,7 @@ fun recalc(
     var us = when (name) {
         "grossWt"     -> userSet.copy(grossWt     = value.isNotEmpty())
         "purity"      -> userSet.copy(purity       = value.isNotEmpty())
+        "fineWt"      -> userSet.copy(fineWt       = value.isNotEmpty())
         "ratePerGram" -> userSet.copy(ratePerGram  = value.isNotEmpty())
         "totalPrice"  -> userSet.copy(totalPrice   = value.isNotEmpty())
         else          -> userSet
@@ -75,67 +77,95 @@ fun recalc(
 
     val gw = s.grossWt.toDoubleOrNull()     ?: Double.NaN
     val pu = s.purity.toDoubleOrNull()      ?: Double.NaN
+    val fw = s.fineWt.toDoubleOrNull()      ?: Double.NaN
     val rg = s.ratePerGram.toDoubleOrNull() ?: Double.NaN
     val tp = s.totalPrice.toDoubleOrNull()  ?: Double.NaN
-
-    // Always reset fineWt — recompute below
-    s = s.copy(fineWt = "")
 
     when (name) {
 
         "grossWt" -> {
             if (us.purity && gw.ok() && pu.ok()) {
-                val fw = gw * pu / 100
-                s = s.copy(fineWt = fmt(fw))
+                val derivedFw = gw * pu / 100
+                s = s.copy(fineWt = fmt(derivedFw))
                 when {
-                    us.ratePerGram && rg.ok() -> { s = s.copy(totalPrice   = fmt(fw * rg, 2)); us = us.copy(totalPrice   = false) }
-                    us.totalPrice  && tp.ok() -> { s = s.copy(ratePerGram  = fmt(tp / fw, 2)); us = us.copy(ratePerGram  = false) }
+                    us.ratePerGram && rg.ok() -> { s = s.copy(totalPrice   = fmt(derivedFw * rg, 2)); us = us.copy(totalPrice   = false) }
+                    us.totalPrice  && tp.ok() -> { s = s.copy(ratePerGram  = fmt(tp / derivedFw, 2)); us = us.copy(ratePerGram  = false) }
                 }
             } else if (us.totalPrice && us.ratePerGram && tp.ok() && rg.ok()) {
-                val fw = tp / rg
-                s = s.copy(fineWt = fmt(fw))
-                if (gw.ok()) { s = s.copy(purity = fmt(fw / gw * 100)); us = us.copy(purity = false) }
+                val derivedFw = tp / rg
+                s = s.copy(fineWt = fmt(derivedFw))
+                if (gw.ok()) { s = s.copy(purity = fmt(derivedFw / gw * 100)); us = us.copy(purity = false) }
             }
         }
 
         "purity" -> {
             if (us.grossWt && gw.ok() && pu.ok()) {
-                val fw = gw * pu / 100
-                s = s.copy(fineWt = fmt(fw))
+                val derivedFw = gw * pu / 100
+                s = s.copy(fineWt = fmt(derivedFw))
                 when {
-                    us.ratePerGram && rg.ok() -> { s = s.copy(totalPrice  = fmt(fw * rg, 2)); us = us.copy(totalPrice  = false) }
-                    us.totalPrice  && tp.ok() -> { s = s.copy(ratePerGram = fmt(tp / fw, 2)); us = us.copy(ratePerGram = false) }
+                    us.ratePerGram && rg.ok() -> { s = s.copy(totalPrice  = fmt(derivedFw * rg, 2)); us = us.copy(totalPrice  = false) }
+                    us.totalPrice  && tp.ok() -> { s = s.copy(ratePerGram = fmt(tp / derivedFw, 2)); us = us.copy(ratePerGram = false) }
+                }
+            }
+        }
+
+        "fineWt" -> {
+            if (fw.ok()) {
+                // Update Price if Rate is known
+                if (us.ratePerGram && rg.ok()) {
+                    s = s.copy(totalPrice = fmt(fw * rg, 2))
+                    us = us.copy(totalPrice = false)
+                } else if (us.totalPrice && tp.ok()) {
+                    s = s.copy(ratePerGram = fmt(tp / fw, 2))
+                    us = us.copy(ratePerGram = false)
+                }
+                
+                // Update Gross or Purity
+                if (us.purity && pu.ok() && pu > 0) {
+                    s = s.copy(grossWt = fmt(fw / (pu / 100)))
+                    us = us.copy(grossWt = false)
+                } else if (us.grossWt && gw.ok() && gw > 0) {
+                    s = s.copy(purity = fmt(fw / gw * 100))
+                    us = us.copy(purity = false)
                 }
             }
         }
 
         "ratePerGram" -> {
             if (us.totalPrice && tp.ok() && rg.ok()) {
-                val fw = tp / rg
-                s = s.copy(fineWt = fmt(fw))
+                val derivedFw = tp / rg
+                s = s.copy(fineWt = fmt(derivedFw))
                 when {
-                    us.grossWt && gw.ok() -> { s = s.copy(purity  = fmt(fw / gw * 100)); us = us.copy(purity  = false) }
-                    us.purity  && pu.ok() -> { s = s.copy(grossWt = fmt(fw * 100 / pu)); us = us.copy(grossWt = false) }
+                    us.grossWt && gw.ok() -> { s = s.copy(purity  = fmt(derivedFw / gw * 100)); us = us.copy(purity  = false) }
+                    us.purity  && pu.ok() -> { s = s.copy(grossWt = fmt(derivedFw * 100 / pu)); us = us.copy(grossWt = false) }
                 }
             } else if (us.grossWt && us.purity && gw.ok() && pu.ok() && rg.ok()) {
-                val fw = gw * pu / 100
-                s = s.copy(fineWt = fmt(fw), totalPrice = fmt(fw * rg, 2))
+                val derivedFw = gw * pu / 100
+                s = s.copy(fineWt = fmt(derivedFw), totalPrice = fmt(derivedFw * rg, 2))
+                us = us.copy(totalPrice = false)
+            } else if (us.fineWt && fw.ok() && rg.ok()) {
+                s = s.copy(totalPrice = fmt(fw * rg, 2))
                 us = us.copy(totalPrice = false)
             }
         }
 
         "totalPrice" -> {
             if (us.ratePerGram && rg.ok() && tp.ok()) {
-                val fw = tp / rg
-                s = s.copy(fineWt = fmt(fw))
+                val derivedFw = tp / rg
+                s = s.copy(fineWt = fmt(derivedFw))
                 when {
-                    us.grossWt && gw.ok() -> { s = s.copy(purity  = fmt(fw / gw * 100)); us = us.copy(purity  = false) }
-                    us.purity  && pu.ok() -> { s = s.copy(grossWt = fmt(fw * 100 / pu)); us = us.copy(grossWt = false) }
+                    us.grossWt && gw.ok() -> { s = s.copy(purity  = fmt(derivedFw / gw * 100)); us = us.copy(purity  = false) }
+                    us.purity  && pu.ok() -> { s = s.copy(grossWt = fmt(derivedFw * 100 / pu)); us = us.copy(grossWt = false) }
                 }
             } else if (us.grossWt && us.purity && gw.ok() && pu.ok() && tp.ok()) {
-                val fw = gw * pu / 100
-                s = s.copy(fineWt = fmt(fw))
-                if (fw > 0) { s = s.copy(ratePerGram = fmt(tp / fw, 2)); us = us.copy(ratePerGram = false) }
+                val derivedFw = gw * pu / 100
+                s = s.copy(fineWt = fmt(derivedFw))
+                if (derivedFw > 0) { s = s.copy(ratePerGram = fmt(tp / derivedFw, 2)); us = us.copy(ratePerGram = false) }
+            } else if (us.fineWt && fw.ok() && tp.ok()) {
+                if (fw > 0) {
+                    s = s.copy(ratePerGram = fmt(tp / fw, 2))
+                    us = us.copy(ratePerGram = false)
+                }
             }
         }
     }

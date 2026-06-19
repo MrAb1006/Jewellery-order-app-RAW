@@ -51,6 +51,9 @@ class OrderViewModel(private val repository: OrderRepository) : ViewModel() {
     val karigars: StateFlow<List<Karigar>> = repository.allKarigars
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val allKarigarOrders: StateFlow<List<KarigarOrder>> = repository.allKarigarOrders
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val filteredKarigarOrders: StateFlow<List<KarigarOrder>> = combine(
         repository.allKarigarOrders,
         _karigarSearchQuery,

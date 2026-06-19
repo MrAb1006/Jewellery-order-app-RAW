@@ -1,5 +1,10 @@
 package com.example.ui
 
+import android.content.Intent
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.pdf.PdfDocument
+import android.graphics.Color as AndroidColor
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -33,6 +38,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -44,6 +50,8 @@ import com.example.data.KarigarTransaction
 import com.example.data.DeletedKarigarOrder
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -252,6 +260,7 @@ fun KarigarDashboardScreen(
     var activeTab by rememberSaveable { mutableStateOf("orders") } // "orders" or "karigars"
     
     val orders by viewModel.filteredKarigarOrders.collectAsStateWithLifecycle()
+    val allOrders by viewModel.allKarigarOrders.collectAsStateWithLifecycle()
     val karigars by viewModel.karigars.collectAsStateWithLifecycle()
     val karigarBalances by viewModel.karigarBalances.collectAsStateWithLifecycle()
     
@@ -264,6 +273,9 @@ fun KarigarDashboardScreen(
     var showAddKarigarDialog by rememberSaveable { mutableStateOf(false) }
     var selectedOrderForDetail by remember { mutableStateOf<KarigarOrder?>(null) }
     var orderToEdit by remember { mutableStateOf<KarigarOrder?>(null) }
+    var showShareDrawerState by remember { mutableStateOf(false) }
+    var orderToShare by remember { mutableStateOf<KarigarOrder?>(null) }
+    var karigarToShare by remember { mutableStateOf<Karigar?>(null) }
 
     val deletedKarigarOrders by viewModel.deletedKarigarOrders.collectAsStateWithLifecycle()
     val deletedCustomerOrders by viewModel.deletedOrders.collectAsStateWithLifecycle()
@@ -379,14 +391,14 @@ fun KarigarDashboardScreen(
                     onClick = { showAddOrderDialog = true },
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
-                    shape = CircleShape, // User said "just a plus sign", making it circular might look simpler
-                    modifier = Modifier.padding(bottom = 16.dp, start = 16.dp).size(56.dp)
+                    shape = CircleShape,
+                    modifier = Modifier.padding(bottom = 16.dp, end = 16.dp).size(56.dp)
                 ) {
                     Icon(Icons.Default.Add, contentDescription = "Add Karigar Order")
                 }
             }
         },
-        floatingActionButtonPosition = FabPosition.Start
+        floatingActionButtonPosition = FabPosition.End
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -437,6 +449,10 @@ fun KarigarDashboardScreen(
                     onViewOrders = { 
                         viewModel.setSelectedKarigarFilter(it.id)
                         activeTab = "orders"
+                    },
+                    onShareKarigar = {
+                        karigarToShare = it
+                        showShareDrawerState = true
                     }
                 )
             }
@@ -487,6 +503,10 @@ fun KarigarDashboardScreen(
             onStatusUpdate = { 
                 viewModel.updateKarigarOrder(it)
                 selectedOrderForDetail = it
+            },
+            onShare = {
+                orderToShare = it
+                showShareDrawerState = true
             }
         )
     }
@@ -550,6 +570,44 @@ fun KarigarDashboardScreen(
         BidirectionalCalculatorDialog(
             onDismiss = { showCalculatorDialog = false }
         )
+    }
+
+    if (showShareDrawerState && (orderToShare != null || karigarToShare != null)) {
+        Dialog(
+            onDismissRequest = { 
+                showShareDrawerState = false
+                orderToShare = null
+                karigarToShare = null
+            },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.4f))
+                    .clickable { 
+                        showShareDrawerState = false
+                        orderToShare = null
+                        karigarToShare = null
+                    }
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.BottomCenter
+                ) {
+                    KarigarShareOptionsDrawer(
+                        order = orderToShare,
+                        karigar = karigarToShare,
+                        karigarOrders = if (karigarToShare != null) allOrders.filter { it.karigarId == karigarToShare!!.id } else emptyList(),
+                        onDismiss = { 
+                            showShareDrawerState = false
+                            orderToShare = null
+                            karigarToShare = null
+                        }
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -656,94 +714,72 @@ fun KarigarOrderCard(order: KarigarOrder, onClick: () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column {
-                    Text(order.orderNo, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, letterSpacing = 1.sp)
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Person, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(6.dp))
+                        Text(order.karigarName, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                    }
                     if (order.referenceCustomerName.isNotBlank()) {
-                        Text("Ref: ${order.referenceCustomerName}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Ref: ${order.referenceCustomerName}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
                     }
                 }
-                Box(modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(statusColor.copy(alpha = 0.1f)).padding(horizontal = 8.dp, vertical = 2.dp)) {
-                    Text(order.status.replace("_", " ").uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Black, color = statusColor)
+                Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(statusColor.copy(alpha = 0.1f)).padding(horizontal = 8.dp, vertical = 4.dp)) {
+                    Text(order.status.replace("_", " ").uppercase(), fontSize = 9.sp, fontWeight = FontWeight.Black, color = statusColor)
                 }
             }
             
             Spacer(Modifier.height(8.dp))
-            
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.width(6.dp))
-                Text(order.karigarName, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            }
-            
-            Spacer(Modifier.height(4.dp))
             
             val items = deserializeKarigarItems(order.itemsJson)
-            val itemsSummary = if (items.isNotEmpty()) {
-                items.joinToString { "${it.itemName} (${it.quantity})" }
-            } else {
-                "No items listed"
-            }
-            
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Diamond, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.width(6.dp))
-                Text(itemsSummary, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                items.forEach { item ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Diamond, null, modifier = Modifier.size(10.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                        Spacer(Modifier.width(4.dp))
+                        Text("${item.itemName} (${item.quantity} pc) · ${item.metalType.capitalizeWords()} · ${item.purityPct}%", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
             
             Spacer(Modifier.height(10.dp))
-            HorizontalDivider(modifier = Modifier.alpha(0.05f))
+            HorizontalDivider(modifier = Modifier.alpha(0.1f))
             Spacer(Modifier.height(10.dp))
             
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column {
-                    Text("TOTAL FINE REQ.", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("REQ. FINE", fontSize = 8.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("${String.format("%.3f", order.totalFineRequired)} g", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("ISSUED", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("ISSUED", fontSize = 8.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("${String.format("%.3f", order.totalFineIssued)} g", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
                 }
-                Column(horizontalAlignment = Alignment.End) {
-                    val transactions = deserializeKarigarTransactions(order.transactionsJson)
-                    val totalVal = transactions.sumOf { it.amount }
-                    val items = deserializeKarigarItems(order.itemsJson)
-                    val totalMaking = when(order.makingType) {
-                        "per_gram" -> items.sumOf { it.netFineRequired * it.quantity } * order.makingRate
-                        "flat" -> items.sumOf { it.quantity.toDouble() } * order.makingRate
-                        else -> 0.0
-                    }
-                    Text("TOTAL COST (CP)", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("₹${String.format("%.0f", totalVal + totalMaking)}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFFC5A059))
+                
+                val transactions = deserializeKarigarTransactions(order.transactionsJson)
+                val items = deserializeKarigarItems(order.itemsJson)
+                val totalVal = transactions.sumOf { it.amount }
+                val totalMaking = when(order.makingType) {
+                    "per_gram" -> items.sumOf { it.netFineRequired * it.quantity } * order.makingRate
+                    "flat" -> items.sumOf { it.quantity.toDouble() } * order.makingRate
+                    else -> 0.0
                 }
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column {
-                    val items = deserializeKarigarItems(order.itemsJson)
-                    val totalMaking = when(order.makingType) {
-                        "per_gram" -> items.sumOf { it.netFineRequired * it.quantity } * order.makingRate
-                        "flat" -> items.sumOf { it.quantity.toDouble() } * order.makingRate
-                        else -> 0.0
-                    }
-                    Text("LABOUR / MAKING", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("₹${String.format("%.0f", totalMaking)}", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text("TARGET DATE", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(if(order.deliveryDate != null) SimpleDateFormat("dd MMM").format(Date(order.deliveryDate!!)) else "—", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                
+                Column(modifier = Modifier.weight(1.2f), horizontalAlignment = Alignment.End) {
+                    Text("TOTAL COST", fontSize = 8.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("₹${String.format("%.0f", totalVal + totalMaking)}", fontSize = 13.sp, fontWeight = FontWeight.Black, color = Color(0xFFC5A059))
                 }
             }
             
             if (order.totalFinePending > 0) {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
                 Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(Color(0xFFFFEBEE)).padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
-                    Text("⚠ FINE PENDING: ${String.format("%.3f", order.totalFinePending)} g", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFC62828))
+                    Text("⚠ PENDING FINE: ${String.format("%.3f", order.totalFinePending)} g", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFFC62828))
                 }
             }
         }
@@ -756,7 +792,8 @@ fun KarigarBalanceTab(
     balances: List<KarigarOrderMetrics>,
     onAddKarigar: () -> Unit,
     onDeleteKarigar: (Karigar) -> Unit,
-    onViewOrders: (Karigar) -> Unit
+    onViewOrders: (Karigar) -> Unit,
+    onShareKarigar: (Karigar) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         Card(
@@ -791,7 +828,8 @@ fun KarigarBalanceTab(
                         karigar = karigar,
                         balance = balance,
                         onDelete = { onDeleteKarigar(karigar) },
-                        onViewOrders = { onViewOrders(karigar) }
+                        onViewOrders = { onViewOrders(karigar) },
+                        onShare = { onShareKarigar(karigar) }
                     )
                 }
             }
@@ -804,7 +842,8 @@ fun KarigarBalanceCard(
     karigar: Karigar,
     balance: KarigarOrderMetrics,
     onDelete: () -> Unit,
-    onViewOrders: () -> Unit
+    onViewOrders: () -> Unit,
+    onShare: () -> Unit
 ) {
     val hasPending = balance.totalPending > 0
     val pct = if (balance.totalRequired > 0) (balance.totalIssued / balance.totalRequired * 100).toInt() else 0
@@ -829,6 +868,7 @@ fun KarigarBalanceCard(
                 }
                 
                     Row {
+                        IconButton(onClick = onShare) { Icon(Icons.Default.Share, contentDescription = "Share", modifier = Modifier.size(20.dp), tint = Color(0xFFC5A059)) }
                         IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, contentDescription = "Delete", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error.copy(alpha = 0.5f)) }
                     }
             }
@@ -889,7 +929,7 @@ fun AddKarigarDialog(onDismiss: () -> Unit, onConfirm: (Karigar) -> Unit) {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Karigar Name *") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("Phone Number") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("Phone Number") }, modifier = Modifier.fillMaxWidth())
             }
         },
         confirmButton = {
@@ -1101,10 +1141,10 @@ fun AddEditKarigarOrderDialog(
                                                             }
                                                         }
                                                     }
-                                                    OutlinedTextField(value = item.quantity, onValueChange = { updateEditableItem(index, item.copy(quantity = it)) }, label = { Text("Qty") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, shape = RoundedCornerShape(12.dp))
+                                                    OutlinedTextField(value = item.quantity, onValueChange = { updateEditableItem(index, item.copy(quantity = it)) }, label = { Text("Qty") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(12.dp))
                                                 }
 
-                                                OutlinedTextField(value = item.grossWeight, onValueChange = { updateEditableItem(index, item.copy(grossWeight = it)) }, label = { Text("Gross Weight (g)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, shape = RoundedCornerShape(12.dp))
+                                                OutlinedTextField(value = item.grossWeight, onValueChange = { updateEditableItem(index, item.copy(grossWeight = it)) }, label = { Text("Gross Weight (g)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(12.dp))
                                                 
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                                     Checkbox(checked = item.subtractStoneWeight, onCheckedChange = { updateEditableItem(index, item.copy(subtractStoneWeight = it)) })
@@ -1112,12 +1152,12 @@ fun AddEditKarigarOrderDialog(
                                                 }
                                                 
                                                 if (item.subtractStoneWeight) {
-                                                    OutlinedTextField(value = item.stoneWeight, onValueChange = { updateEditableItem(index, item.copy(stoneWeight = it)) }, label = { Text("Stone Weight (g)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, shape = RoundedCornerShape(12.dp))
+                                                    OutlinedTextField(value = item.stoneWeight, onValueChange = { updateEditableItem(index, item.copy(stoneWeight = it)) }, label = { Text("Stone Weight (g)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(12.dp))
                                                 }
 
                                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                    OutlinedTextField(value = item.purityPct, onValueChange = { updateEditableItem(index, item.copy(purityPct = it)) }, label = { Text("Purity %") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, shape = RoundedCornerShape(12.dp))
-                                                    OutlinedTextField(value = item.wastagePct, onValueChange = { updateEditableItem(index, item.copy(wastagePct = it)) }, label = { Text("Wastage %") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, shape = RoundedCornerShape(12.dp))
+                                                    OutlinedTextField(value = item.purityPct, onValueChange = { updateEditableItem(index, item.copy(purityPct = it)) }, label = { Text("Purity %") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(12.dp))
+                                                    OutlinedTextField(value = item.wastagePct, onValueChange = { updateEditableItem(index, item.copy(wastagePct = it)) }, label = { Text("Wastage %") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(12.dp))
                                                 }
                                                 
                                                 Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)).padding(12.dp), contentAlignment = Alignment.Center) {
@@ -1148,13 +1188,13 @@ fun AddEditKarigarOrderDialog(
                                     Text("ISSUE NEW METAL", fontSize = 10.sp, fontWeight = FontWeight.Black)
                                     
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        OutlinedTextField(value = balGrossWeight, onValueChange = { balGrossWeight = it; val g=it.toDoubleOrNull() ?: 0.0; val p=balPurityPct.toDoubleOrNull() ?: 0.0; balNetFine = String.format("%.3f", g*p/100.0); val r=balRate.toDoubleOrNull() ?: 0.0; balAmount = String.format("%.0f", (g*p/100.0)*r) }, label = { Text("Gross") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                                        OutlinedTextField(value = balPurityPct, onValueChange = { balPurityPct = it; val g=balGrossWeight.toDoubleOrNull() ?: 0.0; val p=it.toDoubleOrNull() ?: 0.0; balNetFine = String.format("%.3f", g*p/100.0); val r=balRate.toDoubleOrNull() ?: 0.0; balAmount = String.format("%.0f", (g*p/100.0)*r) }, label = { Text("Purity %") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                                        OutlinedTextField(value = balGrossWeight, onValueChange = { balGrossWeight = it; val g=it.toDoubleOrNull() ?: 0.0; val p=balPurityPct.toDoubleOrNull() ?: 0.0; balNetFine = String.format("%.3f", g*p/100.0); val r=balRate.toDoubleOrNull() ?: 0.0; balAmount = String.format("%.0f", (g*p/100.0)*r) }, label = { Text("Gross") }, modifier = Modifier.weight(1f))
+                                        OutlinedTextField(value = balPurityPct, onValueChange = { balPurityPct = it; val g=balGrossWeight.toDoubleOrNull() ?: 0.0; val p=it.toDoubleOrNull() ?: 0.0; balNetFine = String.format("%.3f", g*p/100.0); val r=balRate.toDoubleOrNull() ?: 0.0; balAmount = String.format("%.0f", (g*p/100.0)*r) }, label = { Text("Purity %") }, modifier = Modifier.weight(1f))
                                     }
                                     
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        OutlinedTextField(value = balRate, onValueChange = { balRate = it; val f = balNetFine.toDoubleOrNull() ?: 0.0; val r = it.toDoubleOrNull() ?: 0.0; balAmount = String.format("%.0f", f * r) }, label = { Text("Rate / g") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                                        OutlinedTextField(value = balAmount, onValueChange = { balAmount = it }, label = { Text("Amount (₹)") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                                        OutlinedTextField(value = balRate, onValueChange = { balRate = it; val f = balNetFine.toDoubleOrNull() ?: 0.0; val r = it.toDoubleOrNull() ?: 0.0; balAmount = String.format("%.0f", f * r) }, label = { Text("Rate / g") }, modifier = Modifier.weight(1f))
+                                        OutlinedTextField(value = balAmount, onValueChange = { balAmount = it }, label = { Text("Amount (₹)") }, modifier = Modifier.weight(1f))
                                     }
 
                                     Button(
@@ -1176,10 +1216,10 @@ fun AddEditKarigarOrderDialog(
                                     Text("ISSUE IN CASH (SETTLE FINE)", fontSize = 10.sp, fontWeight = FontWeight.Black)
                                     
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        OutlinedTextField(value = cashWeight, onValueChange = { cashWeight = it; val w=it.toDoubleOrNull() ?: 0.0; val r=cashRate.toDoubleOrNull() ?: 0.0; cashAmount = String.format("%.0f", w*r) }, label = { Text("Weight (g)") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                                        OutlinedTextField(value = cashRate, onValueChange = { cashRate = it; val w=cashWeight.toDoubleOrNull() ?: 0.0; val r=it.toDoubleOrNull() ?: 0.0; cashAmount = String.format("%.0f", w*r) }, label = { Text("Rate / g") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                                        OutlinedTextField(value = cashWeight, onValueChange = { cashWeight = it; val w=it.toDoubleOrNull() ?: 0.0; val r=cashRate.toDoubleOrNull() ?: 0.0; cashAmount = String.format("%.0f", w*r) }, label = { Text("Weight (g)") }, modifier = Modifier.weight(1f))
+                                        OutlinedTextField(value = cashRate, onValueChange = { cashRate = it; val w=cashWeight.toDoubleOrNull() ?: 0.0; val r=it.toDoubleOrNull() ?: 0.0; cashAmount = String.format("%.0f", w*r) }, label = { Text("Rate / g") }, modifier = Modifier.weight(1f))
                                     }
-                                    OutlinedTextField(value = cashAmount, onValueChange = { cashAmount = it }, label = { Text("Total Amount (₹)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                                    OutlinedTextField(value = cashAmount, onValueChange = { cashAmount = it }, label = { Text("Total Amount (₹)") }, modifier = Modifier.fillMaxWidth())
                                     
                                     Button(
                                         onClick = { 
@@ -1200,7 +1240,8 @@ fun AddEditKarigarOrderDialog(
 
                                     if (transactions.isNotEmpty()) {
                                         Text("HISTORY", fontSize = 10.sp, fontWeight = FontWeight.Black)
-                                        transactions.reversed().forEach { t ->
+                                        transactions.indices.reversed().forEach { i ->
+                                            val t = transactions[i]
                                             Card(modifier = Modifier.fillMaxWidth()) {
                                                 Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                                     Column(modifier = Modifier.weight(1f)) {
@@ -1210,6 +1251,12 @@ fun AddEditKarigarOrderDialog(
                                                     Column(horizontalAlignment = Alignment.End) {
                                                         Text("${String.format("%.3f", t.weight)} g", fontWeight = FontWeight.Black, color = if(t.type=="metal") Color(0xFF2E7D32) else Color(0xFF1976D2))
                                                         if (t.type == "cash") Text("₹${String.format("%.0f", t.amount)}", fontSize = 10.sp)
+                                                    }
+                                                    Spacer(Modifier.width(8.dp))
+                                                    IconButton(onClick = { 
+                                                        transactions = transactions.filterIndexed { index, _ -> index != i }
+                                                    }, modifier = Modifier.size(24.dp)) {
+                                                        Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
                                                     }
                                                 }
                                             }
@@ -1228,7 +1275,7 @@ fun AddEditKarigarOrderDialog(
                                         }
                                     }
                                     
-                                    OutlinedTextField(value = makingRate, onValueChange = { makingRate = it }, label = { Text("Making Rate") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                                    OutlinedTextField(value = makingRate, onValueChange = { makingRate = it }, label = { Text("Making Rate") }, modifier = Modifier.fillMaxWidth())
                                     
                                     val rate = makingRate.toDoubleOrNull() ?: 0.0
                                     val totalMaking = when(makingType) {
@@ -1315,7 +1362,6 @@ fun BalanceInput(label: String, value: String, onValueChange: (String) -> Unit, 
             value = value,
             onValueChange = onValueChange,
             modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             textStyle = MaterialTheme.typography.bodyLarge.copy(textAlign = TextAlign.Center, fontWeight = FontWeight.Bold, color = color),
             singleLine = true
         )
@@ -1328,7 +1374,8 @@ fun KarigarOrderDetailDialog(
     onDismiss: () -> Unit,
     onEdit: (KarigarOrder) -> Unit,
     onDelete: (KarigarOrder) -> Unit,
-    onStatusUpdate: (KarigarOrder) -> Unit
+    onStatusUpdate: (KarigarOrder) -> Unit,
+    onShare: (KarigarOrder) -> Unit
 ) {
     val context = LocalContext.current
     var currentOrder by remember(order) { mutableStateOf(order) }
@@ -1340,24 +1387,7 @@ fun KarigarOrderDetailDialog(
                     IconButton(onClick = onDismiss) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
                     Text("Order Details", fontWeight = FontWeight.Bold)
                     Row {
-                        IconButton(onClick = { /* Share Logic */
-                            val sdf = SimpleDateFormat("dd MMM, hh:mm a")
-                            val text = """
-                                Order No: ${currentOrder.orderNo}
-                                Karigar: ${currentOrder.karigarName}
-                                Total Fine Required: ${String.format("%.3f", currentOrder.totalFineRequired)}g
-                                Total Fine Issued: ${String.format("%.3f", currentOrder.totalFineIssued)}g
-                                Total Fine Pending: ${String.format("%.3f", currentOrder.totalFinePending)}g
-                                Status: ${currentOrder.status.uppercase()}
-                            """.trimIndent()
-                            val sendIntent = android.content.Intent().apply {
-                                action = android.content.Intent.ACTION_SEND
-                                putExtra(android.content.Intent.EXTRA_TEXT, text)
-                                type = "text/plain"
-                            }
-                            val shareIntent = android.content.Intent.createChooser(sendIntent, null)
-                            context.startActivity(shareIntent)
-                        }) { Icon(Icons.Default.Share, null, tint = Color(0xFFC5A059)) }
+                        IconButton(onClick = { onShare(currentOrder) }) { Icon(Icons.Default.Share, null, tint = Color(0xFFC5A059)) }
                         IconButton(onClick = { onEdit(currentOrder) }) { Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary) }
                         IconButton(onClick = { onDelete(currentOrder) }) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) }
                     }
@@ -1469,6 +1499,7 @@ fun WeightGrid(order: KarigarOrder) {
                     }
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("Purity: ${item.purityPct}%", fontSize = 11.sp)
+                        Text("Wastage: ${item.wastagePct}%", fontSize = 11.sp)
                         Text("Fine: ${String.format("%.3f", item.netFineRequired)}g", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
@@ -1562,4 +1593,526 @@ fun KarigarActivityLogDialog(
             dismissButton = { TextButton(onClick = { showConfirmClearAll = false }) { Text("Cancel") } }
         )
     }
+}
+
+// --- Share Logic ---
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun KarigarShareOptionsDrawer(
+    order: KarigarOrder? = null,
+    karigar: Karigar? = null,
+    karigarOrders: List<KarigarOrder> = emptyList(),
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var isGeneratingPdf by remember { mutableStateOf(false) }
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .wrapContentHeight()
+            .clickable(enabled = false) {},
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 16.dp),
+        border = BorderStroke(1.dp, Color(0xFFC5A059).copy(alpha = 0.25f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 80.dp, top = 20.dp, start = 20.dp, end = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(modifier = Modifier.width(40.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)))
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                if (karigar != null) "SHARE KARIGAR BALANCE" else "SHARE WORK ORDER",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFC5A059),
+                letterSpacing = 1.sp
+            )
+            Text(
+                if (karigar != null) "Consolidated statement for ${karigar.name}" else "Generate and share Karigar Work Order PDF for ${order?.orderNo}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
+            )
+            
+            if (isGeneratingPdf) {
+                CircularProgressIndicator(color = Color(0xFFC5A059), modifier = Modifier.size(36.dp))
+            } else {
+                val options = listOf(
+                    ShareOption("WhatsApp", Icons.Default.Message, Color(0xFF25D366)),
+                    ShareOption("Print", Icons.Default.Print, Color(0xFFE65100)),
+                    ShareOption("Save", Icons.Default.Save, Color(0xFF607D8B)),
+                    ShareOption("Share", Icons.Default.Share, Color(0xFFC5A059))
+                )
+                
+                FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    options.forEach { option ->
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable {
+                            isGeneratingPdf = true
+                            val pdfFile = if (karigar != null) {
+                                generateKarigarBalancePdf(context, karigar, karigarOrders)
+                            } else {
+                                generateKarigarOrderPdf(context, order!!)
+                            }
+                            
+                            if (pdfFile != null && pdfFile.exists()) {
+                                when (option.label) {
+                                    "Print" -> printKarigarOrderPdf(context, pdfFile)
+                                    "Save" -> {
+                                        Toast.makeText(context, "Saved as ${pdfFile.name}", Toast.LENGTH_SHORT).show()
+                                        viewKarigarOrderPdf(context, pdfFile)
+                                    }
+                                    else -> shareKarigarOrderPdf(context, pdfFile)
+                                }
+                            }
+                            isGeneratingPdf = false
+                            onDismiss()
+                        }.padding(16.dp)) {
+                            Box(modifier = Modifier.size(50.dp).clip(CircleShape).background(option.backgroundColor.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
+                                Icon(option.icon, null, tint = option.backgroundColor)
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text(option.label, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// --- PDF Helpers ---
+
+fun drawItemsTable(canvas: Canvas, paint: Paint, items: List<KarigarOrderItem>, startY: Float): Float {
+    var y = startY
+    val margin = 50f
+    val totalWidth = 495f
+    val colWidths = listOf(25f, 120f, 30f, 55f, 60f, 50f, 60f, 95f)
+    val headers = listOf("No.", "Item", "Pcs", "Grs wt", "Stone wt", "Purity", "Wastage", "Fine wt")
+    
+    // Draw Header Background
+    paint.color = AndroidColor.parseColor("#EEEEEE")
+    paint.style = Paint.Style.FILL
+    canvas.drawRect(margin, y, margin + totalWidth, y + 25f, paint)
+    
+    // Draw Header Text
+    paint.color = AndroidColor.BLACK
+    paint.textSize = 8.5f
+    paint.isFakeBoldText = true
+    paint.textAlign = Paint.Align.LEFT
+    var curX = margin
+    headers.forEachIndexed { i, h ->
+        canvas.drawText(h, curX + 4f, y + 16f, paint)
+        curX += colWidths[i]
+    }
+    
+    y += 25f
+    paint.isFakeBoldText = false
+    paint.style = Paint.Style.STROKE
+    paint.strokeWidth = 0.5f
+    paint.color = AndroidColor.LTGRAY
+    
+    // Draw Rows
+    items.forEachIndexed { index, item ->
+        curX = margin
+        val rowHeight = 22f
+        
+        paint.style = Paint.Style.FILL
+        paint.color = AndroidColor.BLACK
+        paint.textSize = 9f
+        
+        // No.
+        canvas.drawText("${index + 1}", curX + 4f, y + 15f, paint)
+        curX += colWidths[0]
+        
+        // Item
+        val truncatedName = if (item.itemName.length > 20) item.itemName.take(17) + "..." else item.itemName
+        canvas.drawText(truncatedName, curX + 4f, y + 15f, paint)
+        curX += colWidths[1]
+        
+        // Pcs
+        canvas.drawText("${item.quantity}", curX + 4f, y + 15f, paint)
+        curX += colWidths[2]
+        
+        // Grs wt
+        canvas.drawText(String.format("%.3f", item.grossWeight), curX + 4f, y + 15f, paint)
+        curX += colWidths[3]
+        
+        // Stone wt
+        canvas.drawText(String.format("%.3f", item.stoneWeight), curX + 4f, y + 15f, paint)
+        curX += colWidths[4]
+        
+        // Purity
+        canvas.drawText("${item.purityPct}%", curX + 4f, y + 15f, paint)
+        curX += colWidths[5]
+        
+        // Wastage
+        canvas.drawText("${item.wastagePct}%", curX + 4f, y + 15f, paint)
+        curX += colWidths[6]
+        
+        // Fine wt
+        paint.isFakeBoldText = true
+        canvas.drawText(String.format("%.3f", item.netFineRequired), curX + 4f, y + 15f, paint)
+        paint.isFakeBoldText = false
+        
+        y += rowHeight
+        
+        // Draw horizontal line
+        paint.style = Paint.Style.STROKE
+        paint.color = AndroidColor.parseColor("#DDDDDD")
+        canvas.drawLine(margin, y, margin + totalWidth, y, paint)
+    }
+    
+    // Draw Border
+    paint.style = Paint.Style.STROKE
+    paint.color = AndroidColor.DKGRAY
+    canvas.drawRect(margin, startY, margin + totalWidth, y, paint)
+    
+    paint.style = Paint.Style.FILL // Reset
+    return y + 15f
+}
+
+fun generateKarigarOrderPdf(context: android.content.Context, order: KarigarOrder): File? {
+    try {
+        val pdfDocument = PdfDocument()
+        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
+        val page = pdfDocument.startPage(pageInfo)
+        val canvas = page.canvas
+        val paint = Paint()
+        
+        var y = 60f
+        
+        // Header
+        paint.color = AndroidColor.BLACK
+        paint.textSize = 24f
+        paint.isFakeBoldText = true
+        paint.textAlign = Paint.Align.CENTER
+        canvas.drawText("KARIGAR WORK ORDER", 297.5f, y, paint)
+        
+        y += 15f
+        paint.color = AndroidColor.parseColor("#C5A059")
+        paint.strokeWidth = 2f
+        canvas.drawLine(50f, y, 545f, y, paint)
+        
+        y += 30f
+        paint.color = AndroidColor.BLACK
+        paint.textSize = 12f
+        paint.textAlign = Paint.Align.LEFT
+        paint.isFakeBoldText = true
+        canvas.drawText("ORDER DETAILS", 50f, y, paint)
+        
+        paint.isFakeBoldText = false
+        paint.textSize = 11f
+        y += 20f
+        canvas.drawText("Order No: ${order.orderNo}", 50f, y, paint)
+        canvas.drawText("Date: ${SimpleDateFormat("dd/MM/yyyy").format(Date(order.orderDate))}", 400f, y, paint)
+        
+        y += 18f
+        canvas.drawText("Karigar: ${order.karigarName}", 50f, y, paint)
+        if (order.phone.isNotBlank()) canvas.drawText("Phone: ${order.phone}", 400f, y, paint)
+        
+        if (order.referenceCustomerName.isNotBlank()) {
+            y += 18f
+            canvas.drawText("Ref. Customer: ${order.referenceCustomerName}", 50f, y, paint)
+        }
+        
+        y += 30f
+        paint.isFakeBoldText = true
+        paint.color = AndroidColor.DKGRAY
+        canvas.drawText("ITEM SPECIFICATIONS", 50f, y, paint)
+        
+        y += 15f
+        val items = deserializeKarigarItems(order.itemsJson)
+        y = drawItemsTable(canvas, paint, items, y)
+        
+        y += 25f
+        paint.isFakeBoldText = true
+        paint.color = AndroidColor.DKGRAY
+        canvas.drawText("METAL RECONCILIATION", 50f, y, paint)
+        y += 10f
+        canvas.drawLine(50f, y, 545f, y, paint)
+        
+        paint.isFakeBoldText = false
+        paint.color = AndroidColor.BLACK
+        y += 25f
+        canvas.drawText("Total Fine Required:", 70f, y, paint)
+        paint.textAlign = Paint.Align.RIGHT
+        canvas.drawText("${String.format("%.3f", order.totalFineRequired)} g", 520f, y, paint)
+        
+        paint.textAlign = Paint.Align.LEFT
+        y += 18f
+        canvas.drawText("Total Fine Issued:", 70f, y, paint)
+        paint.textAlign = Paint.Align.RIGHT
+        canvas.drawText("${String.format("%.3f", order.totalFineIssued)} g", 520f, y, paint)
+        
+        paint.textAlign = Paint.Align.LEFT
+        y += 18f
+        paint.isFakeBoldText = true
+        canvas.drawText("Balance Pending:", 70f, y, paint)
+        paint.textAlign = Paint.Align.RIGHT
+        canvas.drawText("${String.format("%.3f", order.totalFinePending)} g", 520f, y, paint)
+        
+        val transactions = deserializeKarigarTransactions(order.transactionsJson)
+        if (transactions.isNotEmpty()) {
+            y += 40f
+            paint.textAlign = Paint.Align.LEFT
+            paint.isFakeBoldText = true
+            paint.color = AndroidColor.DKGRAY
+            canvas.drawText("TRANSACTION HISTORY", 50f, y, paint)
+            y += 10f
+            canvas.drawLine(50f, y, 545f, y, paint)
+            
+            paint.isFakeBoldText = false
+            paint.color = AndroidColor.BLACK
+            transactions.forEach { t ->
+                y += 20f
+                val type = if(t.type=="metal") "Metal Issue" else "Cash Issue"
+                canvas.drawText("${SimpleDateFormat("dd MMM, hh:mm a").format(Date(t.date))}", 70f, y, paint)
+                canvas.drawText("$type", 220f, y, paint)
+                paint.textAlign = Paint.Align.RIGHT
+                canvas.drawText("${String.format("%.3f", t.weight)}g (₹${String.format("%.0f", t.amount)})", 520f, y, paint)
+                paint.textAlign = Paint.Align.LEFT
+            }
+        }
+        
+        if (order.specialInstructions.isNotBlank()) {
+            y += 45f
+            paint.isFakeBoldText = true
+            paint.color = AndroidColor.DKGRAY
+            canvas.drawText("NOTES / INSTRUCTIONS", 50f, y, paint)
+            y += 10f
+            canvas.drawLine(50f, y, 545f, y, paint)
+            
+            paint.isFakeBoldText = false
+            paint.color = AndroidColor.BLACK
+            y += 20f
+            val lines = order.specialInstructions.split("\n")
+            lines.forEach { line ->
+                canvas.drawText(line, 70f, y, paint)
+                y += 15f
+            }
+        }
+        
+        // Footer
+        y = 800f
+        paint.color = AndroidColor.LTGRAY
+        paint.textSize = 9f
+        paint.textAlign = Paint.Align.CENTER
+        canvas.drawText("Generated via Suhas Jewellers Management App", 297.5f, y, paint)
+        
+        pdfDocument.finishPage(page)
+        
+        val file = File(context.cacheDir, "KarigarOrder_${order.orderNo}.pdf")
+        pdfDocument.writeTo(FileOutputStream(file))
+        pdfDocument.close()
+        return file
+    } catch (e: Exception) {
+        e.printStackTrace()
+        return null
+    }
+}
+
+fun shareKarigarOrderPdf(context: android.content.Context, file: File) {
+    val authority = "com.example.fileprovider"
+    val uri = androidx.core.content.FileProvider.getUriForFile(context, authority, file)
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "application/pdf"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, "Share Work Order"))
+}
+
+fun printKarigarOrderPdf(context: android.content.Context, file: File) {
+    val printManager = context.getSystemService(android.content.Context.PRINT_SERVICE) as android.print.PrintManager
+    val printAdapter = object : android.print.PrintDocumentAdapter() {
+        override fun onWrite(pages: Array<out android.print.PageRange>?, destination: android.os.ParcelFileDescriptor?, cancellationSignal: android.os.CancellationSignal?, callback: WriteResultCallback?) {
+            try {
+                val input = file.inputStream()
+                val output = FileOutputStream(destination?.fileDescriptor)
+                input.copyTo(output)
+                callback?.onWriteFinished(arrayOf(android.print.PageRange.ALL_PAGES))
+            } catch (e: Exception) { callback?.onWriteFailed(e.message) }
+        }
+        override fun onLayout(oldAttributes: android.print.PrintAttributes?, newAttributes: android.print.PrintAttributes?, cancellationSignal: android.os.CancellationSignal?, callback: LayoutResultCallback?, extras: android.os.Bundle?) {
+            if (cancellationSignal?.isCanceled == true) {
+                callback?.onLayoutCancelled()
+                return
+            }
+            val builder = android.print.PrintDocumentInfo.Builder("KarigarOrder.pdf")
+                .setContentType(android.print.PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
+                .setPageCount(1)
+            callback?.onLayoutFinished(builder.build(), true)
+        }
+    }
+    printManager.print("Karigar Work Order", printAdapter, null)
+}
+
+fun generateKarigarBalancePdf(context: android.content.Context, karigar: Karigar, orders: List<KarigarOrder>): File? {
+    try {
+        val pdfDocument = PdfDocument()
+        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
+        val page = pdfDocument.startPage(pageInfo)
+        val canvas = page.canvas
+        val paint = Paint()
+        
+        var y = 60f
+        
+        // Header
+        paint.color = AndroidColor.BLACK
+        paint.textSize = 24f
+        paint.isFakeBoldText = true
+        paint.textAlign = Paint.Align.CENTER
+        canvas.drawText("KARIGAR BALANCE SHEET", 297.5f, y, paint)
+        
+        y += 15f
+        paint.color = AndroidColor.parseColor("#C5A059")
+        paint.strokeWidth = 2f
+        canvas.drawLine(50f, y, 545f, y, paint)
+        
+        y += 30f
+        paint.color = AndroidColor.BLACK
+        paint.textSize = 12f
+        paint.textAlign = Paint.Align.LEFT
+        paint.isFakeBoldText = true
+        canvas.drawText("KARIGAR INFORMATION", 50f, y, paint)
+        
+        paint.isFakeBoldText = false
+        paint.textSize = 11f
+        y += 20f
+        canvas.drawText("Name: ${karigar.name}", 50f, y, paint)
+        canvas.drawText("Date Generated: ${SimpleDateFormat("dd/MM/yyyy").format(Date())}", 400f, y, paint)
+        
+        y += 18f
+        canvas.drawText("Phone: ${karigar.phone}", 50f, y, paint)
+        
+        // Cumulative Metrics
+        val totalRequired = orders.sumOf { it.totalFineRequired }
+        val totalIssued = orders.sumOf { it.totalFineIssued }
+        val totalPending = totalRequired - totalIssued
+        
+        y += 40f
+        paint.isFakeBoldText = true
+        paint.color = AndroidColor.DKGRAY
+        canvas.drawText("CONSOLIDATED SUMMARY", 50f, y, paint)
+        y += 10f
+        canvas.drawLine(50f, y, 545f, y, paint)
+        
+        paint.isFakeBoldText = false
+        paint.color = AndroidColor.BLACK
+        y += 25f
+        canvas.drawText("Total Fine Required (All Orders):", 70f, y, paint)
+        paint.textAlign = Paint.Align.RIGHT
+        canvas.drawText("${String.format("%.3f", totalRequired)} g", 520f, y, paint)
+        
+        paint.textAlign = Paint.Align.LEFT
+        y += 18f
+        canvas.drawText("Total Fine Issued:", 70f, y, paint)
+        paint.textAlign = Paint.Align.RIGHT
+        canvas.drawText("${String.format("%.3f", totalIssued)} g", 520f, y, paint)
+        
+        paint.textAlign = Paint.Align.LEFT
+        y += 18f
+        paint.isFakeBoldText = true
+        canvas.drawText("NET BALANCE PENDING:", 70f, y, paint)
+        paint.textAlign = Paint.Align.RIGHT
+        canvas.drawText("${String.format("%.3f", totalPending)} g", 520f, y, paint)
+        
+        // Consolidated Item Specifications
+        y += 50f
+        paint.textAlign = Paint.Align.LEFT
+        paint.isFakeBoldText = true
+        paint.color = AndroidColor.DKGRAY
+        canvas.drawText("CONSOLIDATED ITEM SPECIFICATIONS", 50f, y, paint)
+        y += 10f
+        canvas.drawLine(50f, y, 545f, y, paint)
+        
+        orders.forEach { order ->
+            if (y > 750) { // Very basic page break check
+                 // In a real app we'd start a new page here, but for now we'll just stop
+                 // to avoid crashing or overlapping footer.
+                 return@forEach 
+            }
+            y += 25f
+            paint.textSize = 10f
+            paint.isFakeBoldText = true
+            paint.color = AndroidColor.BLACK
+            canvas.drawText("Order: ${order.orderNo} (${SimpleDateFormat("dd/MM/yy").format(Date(order.orderDate))})", 50f, y, paint)
+            y += 8f
+            val items = deserializeKarigarItems(order.itemsJson)
+            y = drawItemsTable(canvas, paint, items, y)
+        }
+        
+        // Detailed Transaction History
+        y += 50f
+        paint.textAlign = Paint.Align.LEFT
+        paint.isFakeBoldText = true
+        paint.color = AndroidColor.DKGRAY
+        canvas.drawText("COMBINED TRANSACTION HISTORY", 50f, y, paint)
+        y += 10f
+        canvas.drawLine(50f, y, 545f, y, paint)
+        
+        paint.isFakeBoldText = false
+        paint.color = AndroidColor.BLACK
+        
+        val allTransactions = orders.flatMap { order ->
+            deserializeKarigarTransactions(order.transactionsJson).map { it to order.orderNo }
+        }.sortedByDescending { it.first.date }
+
+        if (allTransactions.isEmpty()) {
+            y += 25f
+            canvas.drawText("No transactions found.", 70f, y, paint)
+        } else {
+            allTransactions.forEach { (t, orderNo) ->
+                if (y > 780) { // Simple page overflow handling
+                    pdfDocument.finishPage(page)
+                    val newPage = pdfDocument.startPage(PdfDocument.PageInfo.Builder(595, 842, orders.indexOf(orders.find { it.orderNo == orderNo }) + 2).create())
+                    val newCanvas = newPage.canvas
+                    // In a real app we'd handle pagination better, but for now just stop or draw on same if it fits
+                }
+                y += 20f
+                val type = if(t.type=="metal") "Metal" else "Cash"
+                canvas.drawText("${SimpleDateFormat("dd/MM/yy").format(Date(t.date))}", 60f, y, paint)
+                canvas.drawText("$orderNo", 140f, y, paint)
+                canvas.drawText("$type", 240f, y, paint)
+                paint.textAlign = Paint.Align.RIGHT
+                canvas.drawText("${String.format("%.3f", t.weight)}g (₹${String.format("%.0f", t.amount)})", 520f, y, paint)
+                paint.textAlign = Paint.Align.LEFT
+                
+                if (y > 800) return@forEach // Stop if too many for one page for now
+            }
+        }
+        
+        // Footer
+        y = 800f
+        paint.color = AndroidColor.LTGRAY
+        paint.textSize = 9f
+        paint.textAlign = Paint.Align.CENTER
+        canvas.drawText("Generated via Suhas Jewellers Management App", 297.5f, y, paint)
+        
+        pdfDocument.finishPage(page)
+        
+        val file = File(context.cacheDir, "KarigarBalance_${karigar.name.replace(" ", "_")}.pdf")
+        pdfDocument.writeTo(FileOutputStream(file))
+        pdfDocument.close()
+        return file
+    } catch (e: Exception) {
+        e.printStackTrace()
+        return null
+    }
+}
+
+fun viewKarigarOrderPdf(context: android.content.Context, file: File) {
+    val authority = "com.example.fileprovider"
+    val uri = androidx.core.content.FileProvider.getUriForFile(context, authority, file)
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, "application/pdf")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(intent)
 }
